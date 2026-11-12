@@ -54,6 +54,7 @@ async function main() {
   for (const [sn, w, h, pc] of SIZES) {
     cases.push({ name: `${sn} タイトル`, sn, w, h, pc, q: 'auto=1', title: true });
     for (const id of ENEMIES) for (const seed of (sn === 'pc1366' ? seeds : [seeds[0]])) cases.push({ name: `${sn} ${id} 種${seed} 通し`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=${seed}` });
+    cases.push({ name: `${sn} berserk でたらめ置き（負けの画面）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=berserk&seed=11&bot=random', lose: true });
     for (const id of (quick ? ['mage'] : ENEMIES)) cases.push({ name: `${sn} ${id} 6ターン目で止める`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=11&stop=6`, stop: true });
   }
   let fail = 0, n = 0; const rows = [];
@@ -71,6 +72,7 @@ async function main() {
       if (k.errors.length) bad.push('ページのエラー ' + k.errors.join(' / '));
       if (!c.title && !c.stop && !(k.done && k.result && (k.result.phase === 'won' || k.result.phase === 'lost'))) bad.push('決着まで行かなかった');
       if (c.stop && !k.stopped && !k.done) bad.push('止まる所まで行かなかった');
+      if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;
       if (L.overlaps) bad.push(`文字の重なり ${L.overlaps}（${L.notes.slice(0, 3).join(' / ')}）`);
@@ -83,8 +85,8 @@ async function main() {
     const info = k ? `${k.w}x${k.h} ${k.result ? k.result.phase + ' ' + k.result.turn + 'T' : (k.stopped ? '止' : '')} ターン検査${k.turns} 配置検査${k.layout.samples}` : '';
     rows.push(`${bad.length ? '✗' : '✓'} ${c.name}  ${info}${bad.length ? '\n    → ' + bad.join('\n    → ') : ''}`);
     console.log(rows[rows.length - 1]);
-    if (c.title || c.stop || /種11 通し/.test(c.name)) {
-      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.stop ? '-turn6' : '-result')}.png`);
+    if (c.title || c.stop || c.lose || /種11 通し/.test(c.name)) {
+      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.stop ? '-turn6' : c.lose ? '-lose' : '-result')}.png`);
       await chrome(common.concat([win, `--screenshot=${file}`, url]));
     }
   }

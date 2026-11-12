@@ -586,12 +586,14 @@
     let p = document.getElementById('check-out'); if (!p) { p = el('pre'); p.id = 'check-out'; p.hidden = true; document.body.appendChild(p); }
     p.textContent = JSON.stringify(Object.assign({ w: window.innerWidth, h: window.innerHeight, turn: G.s ? G.s.turn : 0 }, CHECK));
   }
+  let autoSeed = 12345; const autoRand = () => { autoSeed = (autoSeed * 1103515245 + 12345) & 0x7fffffff; return autoSeed / 0x7fffffff; };
   function autoStep() {
     if (!G.s) return;
     if (G.s.phase === 'won' || G.s.phase === 'lost') { writeCheck(); return; }
     if (G.busy) { setTimeout(autoStep, 30); return; }
     if (STOP && G.s.phase === 'place' && G.s.turn >= STOP) { sampleLayout(); CHECK.stopped = true; writeCheck(); return; }
-    const act = Bot.chooseAction(G.s, { start: ['slash', 'shot', 'area'][G.seed % 3] });
+    // ?bot=random … でたらめに置くボット（負けの画面を確かめる用）
+    const act = Bot.chooseAction(G.s, Q.get('bot') === 'random' ? { random: true, rand: autoRand, start: 'slash' } : { start: ['slash', 'shot', 'area'][G.seed % 3] });
     let ok = true;
     if (act.type === 'place') ok = doPlace(act.src, act.cell); else if (act.type === 'swap') ok = doSwap(act.a, act.b); else ok = doEnd();
     if (!ok) doEnd();
