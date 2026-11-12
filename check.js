@@ -50,11 +50,14 @@ async function main() {
   console.log(`窓と中身の差: 幅${DW} 高さ${DH}`);
   // 4つ目の pc1366x768 は、たて長めの窓（棚の札が大きくなる側）。場面を少なめにして回す
   const SIZES = [['pc1366', 1366, 650, true], ['pc1920', 1920, 910, true], ['phone', 375, 812, false], ['pc1366x768', 1366, 768, true, true]];
+  // せまい窓（1024×768）は、盤面のマスが45pxほどになり、札の上の印が重なることがある（未対応。REPORT.md 12章）。
+  // 確かめたいときは SIZES に ['pc1024', 1024, 768, true, true] を足して node check.js only=pc1024
   const ENEMIES = ['golem', 'hunter', 'hydra', 'mage', 'berserk'];
   const seeds = quick ? [11] : [11, 222, 3333];
   const cases = [];
   for (const [sn, w, h, pc, lite] of SIZES) {
     cases.push({ name: `${sn} タイトル`, sn, w, h, pc, q: 'auto=1', title: true });
+    if (sn === 'pc1366' || sn === 'phone') cases.push({ name: `${sn} 場面：敵に毒・持続強化・ひとりの蓄積（直接つくった盤面）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&scene=kept', stop: true, scene: true });
     if (lite) {
       cases.push({ name: `${sn} golem 種11 通し`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11' });
       cases.push({ name: `${sn} golem 棚の札を選んだ画面（つながる相手の表示）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&stop=5&pick=1', stop: true, pick: true });
@@ -65,6 +68,9 @@ async function main() {
     for (const id of (quick ? ['mage'] : ENEMIES)) cases.push({ name: `${sn} ${id} 6ターン目で止める`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=11&stop=6`, stop: true });
     cases.push({ name: `${sn} golem 棚の札を選んだ画面（つながる相手の表示）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&stop=5&pick=1', stop: true, pick: true });
   }
+  // node check.js only=pc1024 … 名前にその文字が入る場面だけ回す（直しの確かめ用。全体の合格には数えない）
+  const only = (process.argv.find(a => a.startsWith('only=')) || '').slice(5);
+  if (only) { const keep = cases.filter(c => c.name.indexOf(only) >= 0); cases.length = 0; cases.push(...keep); }
   let fail = 0, n = 0; const rows = []; const total = { place: 0, swap: 0, zero: 0, shop: 0, line: 0, dead: 0 };
   for (const c of cases) {
     n++;
@@ -83,6 +89,7 @@ async function main() {
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
       if (!c.title && !c.stop && !c.lose && !(k.zeroMoveChecks > 0)) bad.push('手数0のときの「つながる」表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.mates > 0 && k.picked.spots > 0)) bad.push('つながる相手の表示が出ていない（光る札・数字のマスがない）');
+      if (c.scene && !(k.scene && k.scene.name)) bad.push('決まった場面の検査が動かなかった');
       if (c.pick && !(k.pickedSwap && k.pickedSwap.spots > 0)) bad.push('入れかえの「つながる」表示の検査が動かなかった');
       if (!c.title && !c.stop && !c.lose && !(k.placeChecks > 0)) bad.push('置く前の「つながる」表示の検査が、1回も動かなかった');
       if (k) { total.place += k.placeChecks || 0; total.swap += k.swapChecks || 0; total.zero += k.zeroMoveChecks || 0; total.shop += k.shopChecks || 0; total.line += k.lineChecks || 0; total.dead += k.deadSeen || 0; }
@@ -99,7 +106,7 @@ async function main() {
     rows.push(`${bad.length ? '✗' : '✓'} ${c.name}  ${info}${bad.length ? '\n    → ' + bad.join('\n    → ') : ''}`);
     console.log(rows[rows.length - 1]);
     if (c.title || c.stop || c.lose || /種11 通し/.test(c.name)) {
-      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.pick ? '-links' : c.stop ? '-turn6' : c.lose ? '-lose' : '-result')}.png`);
+      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.scene ? '-scene-kept' : c.pick ? '-links' : c.stop ? '-turn6' : c.lose ? '-lose' : '-result')}.png`);
       // 写真をとるときは、窓の大きさがそのまま中身の大きさになる（ふちの分を足さない）
       const shot = c.pc ? `--window-size=${c.w},${c.h}` : `--window-size=500,${c.h}`;
       await chrome(common.concat([shot, `--screenshot=${file}`, url]));
@@ -108,8 +115,8 @@ async function main() {
   server.close();
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* 残っても害はない */ }
   console.log(`\n「つながる」表示をくらべた回数: 置く前 ${total.place} / 入れかえ（自動プレイの中）${total.swap} / 手数0 ${total.zero} / 棚の点線 ${total.shop} / 盤面の線 ${total.line}（うち「効いていない線」がある盤面 ${total.dead}）`);
-  if (!(total.swap > 0 && total.dead > 0)) { console.log('✗ 入れかえの検査、または「効いていない線」のある盤面が、1回も出なかった（検査が足りない）'); fail++; }
-  console.log(`画面の検査: ${n - fail} / ${n} 合格、失敗 ${fail}`);
+  if (!only && !(total.swap > 0 && total.dead > 0)) { console.log('✗ 入れかえの検査、または「効いていない線」のある盤面が、1回も出なかった（検査が足りない）'); fail++; }
+  console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }
 main();

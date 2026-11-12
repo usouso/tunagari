@@ -308,6 +308,28 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   eq('別の毒が攻撃にのっている：はなれた毒＋持続強化も効いている', [d.live[12], d.live[13]], [true, true]);
   d = R.derive(setup({ 12: 'fire', 13: 'sustain' }).board, { poison: 10, fire: 0 });
   eq('敵にあるのは毒だけ：炎＋持続強化は効いていない', [d.live[12], d.live[13]], [false, false]);
+  // 持続強化で もっているだけの毒に、増幅をつないでも効かない（レビューの指摘）
+  d = R.derive(setup({ 11: 'amp', 12: 'poison', 13: 'sustain' }).board, { poison: 10, fire: 0 });
+  eq('敵に毒・攻撃なし：毒と持続強化の線だけ効いている。増幅は効いていない', [key(d.liveLinks), d.live[11]], ['12-13', false]);
+  { const a = setup({ 11: 'amp', 12: 'poison', 13: 'sustain' }, [], { poison: 10 }), b = setup({ 12: 'poison', 13: 'sustain' }, [], { poison: 10 }); R.resolve(a); R.resolve(b);
+    eq('　そのとき、増幅が あっても なくても、ターンのあとの毒は同じ', a.e.poison, b.e.poison); }
+  d = R.derive(setup({ 10: 'slash', 11: 'amp', 12: 'poison', 13: 'sustain' }).board);
+  eq('攻撃があるが、毒は攻撃に のっていない：増幅と毒の線は効いていない（増幅と斬撃の線は効いている）', key(d.liveLinks), '10-11');
+  d = R.derive(setup({ 7: 'slash', 11: 'amp', 12: 'poison' }).board);
+  eq('毒が攻撃に のっている：増幅と毒の線は効いている', key(d.liveLinks), '7-12 11-12');
+  // 炎も同じ（文のとおり：持続強化 Lv1 で、へる量が 1/2）。封印された持続強化は効かない
+  { const a = setup({ 12: 'fire', 13: 'sustain' }, [], { fire: 10 }), b = setup({ 12: 'fire' }, [], { fire: 10 }), c = setup({ 12: 'fire', 13: 'sustain' }, [], { fire: 10 }); c.board[13].sealed = 2;
+    eq('敵に炎10・炎＋持続強化：効いている', R.derive(a.board, a.e).live.filter(x => x).length, 2);
+    eq('　封印された持続強化：炎も持続強化も効いていない', R.derive(c.board, c.e).live.filter(x => x).length, 0);
+    R.resolve(a); R.resolve(b); R.resolve(c);
+    eq('　ターンのあとの炎：持続強化あり5 / なし0 / 封印中0', [a.e.fire, b.e.fire, c.e.fire], [5, 0, 0]); }
+  // 棚の点線（canWork）：置いても働かないときだけ
+  eq('棚：蓄積は、何もない盤面でも働く（点線にしない）', R.canWork(setup({}).board, 'charge'), true);
+  eq('棚：吸収は、攻撃がないと働かない', R.canWork(setup({}).board, 'leech'), false);
+  eq('棚：吸収は、攻撃があれば働く', R.canWork(setup({ 12: 'slash' }).board, 'leech'), true);
+  eq('棚：反射は、盾がないと働かない', [R.canWork(setup({ 12: 'slash' }).board, 'mirror'), R.canWork(setup({ 12: 'shield' }).board, 'mirror')], [false, true]);
+  eq('棚：持続強化は、敵に毒があって毒ブロックがあれば働く', [R.canWork(setup({ 12: 'poison' }).board, 'sustain'), R.canWork(setup({ 12: 'poison' }).board, 'sustain', { poison: 3, fire: 0 })], [false, true]);
+  eq('棚：攻撃・盾は いつでも働く', [R.canWork(setup({}).board, 'slash'), R.canWork(setup({}).board, 'shield')], [true, true]);
   eq('置く前：敵に毒があるとき、毒のとなりに持続強化 → 1本', R.linksIfPlaced(setup({ 12: 'poison' }).board, 'sustain', 13, { poison: 10, fire: 0 }), [12]);
   // 拡散：属性が まだ のっていない攻撃があるときだけ役に立つ
   d = D({ 11: 'slash', 12: 'poison', 13: 'spread' });

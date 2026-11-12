@@ -219,19 +219,21 @@
     // 毒・炎が敵にあるなら、攻撃につながっていない毒・炎ブロックごしでも効いている。
     const has = k => !!(st && st[k] > 0) || d.atk.some(a => a.elem[k] > 0);
     const kept = j => (tp(j) === 'poison' || tp(j) === 'fire') && has(tp(j));
+    // その属性が、どれかの攻撃に のっているか（じかに、または拡散で）。増幅が属性に効くのは、このときだけ。
+    const reach = i => near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i));
     // 1回目：ひとりで働くもの
     for (let i = 0; i < N; i++) if (isActive(board[i])) { const t = tp(i); if (fm(i) === 'atk' || t === 'shield' || t === 'tough' || t === 'regen' || t === 'dodge' || t === 'charge') live[i] = true; } // 蓄積は、ひとりでも たまりがふえる
     // 2回目：攻撃に のるもの（属性・特殊・吸収）、盾がいる反射
     for (let i = 0; i < N; i++) if (isActive(board[i]) && !live[i]) {
       const t = tp(i), f = fm(i);
       if (f === 'spec' || t === 'leech') live[i] = near(i, j => fm(j) === 'atk');
-      else if (f === 'elem') live[i] = near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i)) || (kept(i) && near(i, j => tp(j) === 'sustain'));
+      else if (f === 'elem') live[i] = reach(i) || (kept(i) && near(i, j => tp(j) === 'sustain'));
       else if (t === 'mirror') live[i] = near(i, j => tp(j) === 'shield');
     }
     // 3回目：強化（効いている相手につながっているとき）
     for (let i = 0; i < N; i++) if (isActive(board[i]) && fm(i) === 'enh') {
       const t = tp(i);
-      if (t === 'amp') live[i] = near(i, j => live[j] && (fm(j) === 'atk' || fm(j) === 'elem' || (fm(j) === 'def' && tp(j) !== 'dodge')));
+      if (t === 'amp') live[i] = near(i, j => live[j] && (fm(j) === 'atk' || (fm(j) === 'elem' && reach(j)) || (fm(j) === 'def' && tp(j) !== 'dodge')));
       else if (t === 'pierce') live[i] = near(i, j => fm(j) === 'atk' || (tp(j) === 'mirror' && live[j]));
       else if (t === 'spread') live[i] = near(i, j => fm(j) === 'elem' && spreadHelps(j));
       else if (t === 'sustain') live[i] = near(i, j => tp(j) === 'shield' || kept(j));
@@ -243,6 +245,9 @@
       let ok = live[a] && live[b];
       if (ok && tp(a) === 'spread' && fm(b) === 'elem') ok = spreadHelps(b);
       if (ok && tp(b) === 'spread' && fm(a) === 'elem') ok = spreadHelps(a);
+      // 増幅と属性：その属性が攻撃に のっていない（持続強化で もっているだけ）なら、増幅は何もしない
+      if (ok && tp(a) === 'amp' && fm(b) === 'elem') ok = reach(b);
+      if (ok && tp(b) === 'amp' && fm(a) === 'elem') ok = reach(a);
       if (ok) { LL[a].push(b); LL[b].push(a); liveLinks.push(links[k]); }
     }
     d.live = live; d.LL = LL; d.liveLinks = liveLinks;
@@ -252,6 +257,7 @@
   // 働いていないブロックに出す ひとこと（何につなげば働くか）
   function idleHint(type) {
     const f = B[type].fam;
+    if (type === 'poison' || type === 'fire') return `攻撃ブロックにつなぐと働く（拡散でも とどく）。敵に${B[type].name}が ついているときは、持続強化につないでも働く。`;
     if (f === 'elem') return '攻撃ブロックにつなぐと働く（拡散でも とどく）。';
     if (type === 'sustain') return '盾か、敵に ついている毒・炎のブロックにつなぐと働く。';
     if (f === 'spec' || type === 'leech' || type === 'convert') return '攻撃ブロックにつなぐと働く。';
@@ -533,6 +539,17 @@
     return m;
   }
 
+  // type を いま置いたら働くマスが、1つでもあるか（棚の札を「いま置いても働かない」点線にするかどうか）。
+  // 「つながるか」ではなく「働くか」で決める（蓄積や盾のように、ひとりで働くものがあるため）。
+  function canWork(board, type, st) {
+    for (let i = 0; i < N; i++) {
+      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // Lv3 の同じ種類には、もう重ねられない
+      const c = board.slice(); if (!(b && b.type === type)) c[i] = mk(type);
+      if (derive(c, st).live[i]) return true;
+    }
+    return false;
+  }
+
   // キープ：棚のブロックを1個とっておく（手数を使わない）
   function toKeep(s, idx) {
     if (s.phase !== 'place' || !s.shop[idx]) return false;
@@ -688,7 +705,7 @@
     B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
     needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt, idleHint,
     newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
-    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, linkMates, swapMates, bestLinks,
+    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, linkMates, swapMates, bestLinks, canWork,
     resolve, endTurn, forecast,
   };
 });
