@@ -36,6 +36,7 @@ const head = git(['rev-parse', 'HEAD']).out, head7 = head.slice(0, 7);
 const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']).out;
 const remote = git(['remote', 'get-url', 'origin']).out || '（リモートなし）';
 // 前にレビューした commit（reviews/ のいちばん新しいファイルの「対象commit」）
+let lastFile = null; // 前に完了したレビューのファイル名（直しの確かめを頼むときに使う）
 function lastReviewed() {
   if (!fs.existsSync(OUT)) return null;
   const files = fs.readdirSync(OUT).filter(f => /^\d{8}-\d{4}-[0-9a-f]{7}\.md$/.test(f)).sort();
@@ -43,7 +44,7 @@ function lastReviewed() {
     const txt = fs.readFileSync(path.join(OUT, files[i]), 'utf8');
     if (!/^- 状態: 完了/m.test(txt)) continue; // 失敗・時間切れの回は、レビューした数に入れない
     const m = /^- 対象commit: `([0-9a-f]{7,40})`/m.exec(txt);
-    if (m && git(['cat-file', '-e', m[1] + '^{commit}']).ok) return m[1];
+    if (m && git(['cat-file', '-e', m[1] + '^{commit}']).ok) { lastFile = files[i]; return m[1]; }
   }
   return null;
 }
@@ -52,6 +53,7 @@ if (words[0] && words[0] !== 'all' && words[0] !== 'dry') {
   const r = git(['rev-parse', '--verify', words[0] + '^{commit}']); if (!r.ok) stop(`止めた: commit「${words[0]}」が見つからない。`);
   base = r.out;
 } else if (words[0] !== 'all') base = lastReviewed();
+if (!lastFile) lastReviewed(); // 基準を手で決めたときも、前のレビューがあれば確かめを頼む
 if (base === head && !DRY) stop(`止めた: 前のレビュー（${head7}）から commit が進んでいない。全部を見てもらうなら node review.js all`);
 const range = base ? `${base.slice(0, 7)}..${head7}` : '全部（基準なし）';
 const changed = base ? git(['diff', '--stat', `${base}..${head}`]).out : '';
@@ -86,7 +88,8 @@ ${changed ? '- 変わったファイル:\n' + changed.split('\n').map(l => '  ' 
    - テストの穴: 変えた所に対して、tests.js と check.js の検査が足りているか。足りない検査を具体的に書く。
    - こわれ方: 例外、無限ループ、0やマイナスの数、盤面が満杯のとき、封印・がれき・破壊と重なったとき。
    - きまり: 演出用の CSS class は fx- で始める。文字は小さすぎない・重ならない。
-4. 見つけたことを、下の形で書く。確かめていないことを「問題なし」と書かない。
+4. ${lastFile ? `前のレビューは reviews/${lastFile}（このコピーの中にある）。その指摘が直ったかを、同じ再現のしかたで1つずつ確かめ、「直った / 直っていない / 確かめられない」を書く。` : '（前のレビューはない。）'}
+5. 見つけたことを、下の形で書く。確かめていないことを「問題なし」と書かない。
 
 # してはいけないこと
 - ファイルを変えない。commit・push・公開・merge をしない。
@@ -101,7 +104,9 @@ ${changed ? '- 変わったファイル:\n' + changed.split('\n').map(l => '  ' 
 共通標準の版・読んだ場所・読んだ日時。読めなかったら、そう書く。
 ## 実行したこと
 命令、終了コード、出た数字。
-## 指摘
+## 前の指摘の確かめ（前のレビューがあるとき）
+| 前の番号 | 直った / 直っていない / 確かめられない | 確かめ方 |
+## 指摘（新しく見つけたもの）
 | 番号 | 重要度（重大/中/軽） | 場所（ファイル:行） | 内容 | 再現のしかた | 直し方の案 |
 指摘がなければ「なし」。
 ## 確かめられなかったこと
