@@ -520,7 +520,7 @@
       <li>線が出ていない点線のブロックは、つながる相手がいなくて働いていない。</li>
       <li><b>置く前に、つながる相手が見える。</b>棚のブロックの右上の数字は「いま置くと つながる数」（いちばん多いマスで）。点線の棚ブロックは、いまは相手がいない。</li>
       <li>棚のブロックを選ぶと、<b>つながる相手が黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
-      <li>ブロックの右下に小さい数字が出たら、「そこに置きかえると、空きマスより多く つながる」という印（がれきの上にも出る）。</li>
+      <li>ブロックの右下に小さい数字が出たら、「その上に置くと（置きかえ・レベルアップ）、空きマスより多く つながる」という印。がれきの上には、つながるなら いつも出る。</li>
     </ul><h3>ブロック一覧（Lv1の数字）</h3>`;
     for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) {
       h += `<h3 style="color:${FAM_COLOR[f]}">${R.FAMS[f]}</h3><div class="cat">`;
@@ -698,6 +698,7 @@
     let ok = true;
     const sorted = a => a.slice().sort((x, y) => x - y);
     const shownAt = cell => { const m = cellEl(cell).querySelector('.lk-spot b, .lk-pin'); return m ? +m.textContent : 0; };
+    const shownAll = () => [...document.querySelectorAll('#board .lk-spot b, #board .lk-pin')].map(m => [+m.closest('.cell').dataset.cell, +m.textContent]).sort((x, y) => x[0] - y[0]).map(x => x[0] + ':' + x[1]).join(' ');
     const glowing = () => sorted([...document.querySelectorAll('#board .tile.lk-mate')].map(t => +t.parentElement.dataset.cell));
     const preLinks = cell => sorted([...document.querySelectorAll('#links-pre [data-prelink]')].map(l => +l.dataset.prelink.split('-')[1]));
     if (act.type === 'place') {
@@ -705,6 +706,9 @@
       const want = sorted(R.linksIfPlaced(board, type, act.cell)), spots = R.linkSpots(board, type);
       const exp = (spots.find(x => x.cell === act.cell) || { n: 0 }).n; // このマスに出るはずの数字（数字を出さないマスなら0）
       G.sel = { src: act.src }; renderAll(); // 人が棚の札を選んだときと同じ表示を出す
+      // 盤面に出ている数字のマス全部が、計算（置けるマスだけ）と同じ
+      const expAll = spots.filter(x => R.placeKind(G.s, act.src, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
+      if (shownAll() !== expAll) CHECK.mismatches.push(`数字のマス [${shownAll()}] / 計算 [${expAll}]（${type}）`);
       if (shownAt(act.cell) !== exp) CHECK.mismatches.push(`つながる数の表示 ${shownAt(act.cell)} / 計算 ${exp}（マス${act.cell}）`);
       // 光っている札は、ルールの答え（linkMates）と ぴったり同じ（足りないのも、余分なのも だめ）
       if (String(glowing()) !== String(R.linkMates(board, type))) CHECK.mismatches.push(`光る相手 [${glowing()}] / 計算 [${R.linkMates(board, type)}]（${type}）`);
@@ -727,6 +731,8 @@
       const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b));
       const exp = (R.swapSpots(G.s.board, act.a).find(x => x.cell === act.b) || { n: 0 }).n;
       G.sel = { cell: act.a }; renderAll(); // 人が盤面の札を選んだときと同じ表示を出す
+      const expSw = R.swapSpots(G.s.board, act.a).filter(x => R.canSwap(G.s, act.a, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
+      if (shownAll() !== expSw) CHECK.mismatches.push(`入れかえの数字のマス [${shownAll()}] / 計算 [${expSw}]`);
       if (shownAt(act.b) !== exp) CHECK.mismatches.push(`入れかえの つながる数の表示 ${shownAt(act.b)} / 計算 ${exp}（マス${act.b}）`);
       if (String(glowing()) !== String(R.swapMates(G.s.board, act.a))) CHECK.mismatches.push(`入れかえの 光る相手 [${glowing()}] / 計算 [${R.swapMates(G.s.board, act.a)}]`);
       drawPreLinks(act.b);

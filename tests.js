@@ -231,6 +231,15 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   eq('空きは1本、置きかえは2本 → 両方出す', cells(R.linkSpots(b, 'poison')), '6:1 12:2');
   eq('棚の数字は、置きかえをふくめた最大', R.bestLinks(b, 'poison'), 2);
   eq('置きかえても同じ数の所は出さない（札の上を数字だらけにしない）', R.linkSpots(b, 'poison').some(x => x.cell === 16), false);
+  // 入れかえも同じ決まり（レビュー4回目の指摘2）：0の毒を動かす。空き6は1本、札のある12は2本 → 両方出す
+  const m = setup(Object.assign({}, g, { 0: 'poison' })).board;
+  eq('入れかえ：空きは1本、札のある所は2本 → 両方出す', cells(R.swapSpots(m, 0)), '6:1 12:2');
+  eq('入れかえの光る相手は、その2か所の相手', R.swapMates(m, 0), [11, 13]);
+  // 小さい数字は、重ね（レベルアップ）先にも出る。がれきは、つながるなら空きより少なくても出る（レビュー4回目の指摘1）
+  const up = setup(Object.assign({}, g, { 12: 'poison' })).board;
+  eq('重ねる先（同じ種類）にも、空きより多ければ数字が出る', cells(R.linkSpots(up, 'poison')), '6:1 12:2');
+  const rb = Object.assign({}, g, { 6: 'rubble' }); delete rb[12];
+  eq('がれきは、空きより少なくても出る', cells(R.linkSpots(setup(rb).board, 'poison')), '6:1 12:2');
   // 棚の数字は、置けるマス全部を1つずつ数えた最大と、いつも同じ（でたらめな盤面300個）
   let x = 7, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
   const kinds = R.TYPES.concat(['rubble']);
