@@ -6,6 +6,8 @@
  *         node review.js <commit>   … その commit から HEAD までを見てもらう
  *         node review.js dry        … 頼む文と命令を出すだけ（Codex は動かさない。お金も回数も使わない）
  *   オプション: --model=<名前>  --minutes=<待つ分数。なければ30>
+ *   model を書かないときは Codex の設定の model を使う。それが このアカウントで使えないときは、下の FALLBACK を順に試す。
+ *   使える model の名前は `codex debug models` で見られる。
  * やること:
  *   1. コミットしていない変更があれば止める（レビューの対象は commit で決める）。
  *   2. 対象 commit の「隔離したコピー」を一時フォルダーに作る（制作の作業フォルダーは動かさない）。
@@ -24,6 +26,7 @@ const words = args.filter(a => !a.startsWith('--'));
 const DRY = words[0] === 'dry';
 const git = (a, cwd) => { const r = spawnSync('git', a, { cwd: cwd || ROOT, encoding: 'utf8' }); return { ok: r.status === 0, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() }; };
 const stop = (msg, code) => { console.log(msg); process.exit(code || 1); };
+const FALLBACK = ['gpt-6-sol', 'gpt-6-astra']; // Codex の設定の model が使えないときに、順に試す（2026-11-13 に このアカウントで動くのを確かめた）
 
 // ---- 1. 対象を決める
 if (!git(['rev-parse', '--git-dir']).ok) stop('止めた: ここは Git のフォルダーではない。');
@@ -37,7 +40,9 @@ function lastReviewed() {
   if (!fs.existsSync(OUT)) return null;
   const files = fs.readdirSync(OUT).filter(f => /^\d{8}-\d{4}-[0-9a-f]{7}\.md$/.test(f)).sort();
   for (let i = files.length - 1; i >= 0; i--) {
-    const m = /^- 対象commit: `([0-9a-f]{7,40})`/m.exec(fs.readFileSync(path.join(OUT, files[i]), 'utf8'));
+    const txt = fs.readFileSync(path.join(OUT, files[i]), 'utf8');
+    if (!/^- 状態: 完了/m.test(txt)) continue; // 失敗・時間切れの回は、レビューした数に入れない
+    const m = /^- 対象commit: `([0-9a-f]{7,40})`/m.exec(txt);
     if (m && git(['cat-file', '-e', m[1] + '^{commit}']).ok) return m[1];
   }
   return null;
@@ -107,9 +112,8 @@ const stamp = (() => { const d = new Date(), p = n => String(n).padStart(2, '0')
 const outFile = path.join(OUT, `${stamp}-${head7}.md`);
 const work = path.join(os.tmpdir(), `tunagari-review-${head7}-${process.pid}`);
 const lastPath = path.join(os.tmpdir(), `tunagari-review-${head7}-${process.pid}.md`); // Codex の最後の答えの一時ファイル（作業フォルダーの外）
-const cargs = ['exec', '--sandbox', 'read-only', '--color', 'never', '--ephemeral', '-C', work, '-o', lastPath];
-if (opt('model')) cargs.push('--model', opt('model'));
-cargs.push('-');
+const cargsFor = model => ['exec', '--sandbox', 'read-only', '--color', 'never', '--ephemeral', '-C', work, '-o', lastPath].concat(model ? ['--model', model] : [], ['-']);
+const cargs = cargsFor(opt('model'));
 
 if (DRY) {
   console.log(`対象commit ${head7} / 見る範囲 ${range}${dirty ? ' / ※コミットしていない変更あり（本番では止まる）' : ''}`);
@@ -124,11 +128,20 @@ const ver = spawnSync('codex', ['--version'], { encoding: 'utf8' });
 if (ver.status !== 0) stop('環境制約: codex の命令が見つからない（Codex CLI が入っていない、または PATH にない）。', 2);
 const wt = git(['worktree', 'add', '--detach', work, head]);
 if (!wt.ok) stop('止めた: 隔離したコピーを作れなかった。\n' + wt.err);
-let run, lastMsg = '';
+let run, lastMsg = '', usedModel = opt('model') || null; const tried = [];
+const errOf = r => { const m = /"message":"([^"]+)"/.exec((r.stderr || '') + (r.stdout || '')); return m ? m[1] : ''; };
 try {
   console.log(`Codex にレビューを頼む: 対象commit ${head7} / 見る範囲 ${range}（数分かかる）`);
   const t0 = Date.now();
-  run = spawnSync('codex', cargs, { input: prompt, encoding: 'utf8', timeout: (+(opt('minutes') || 30)) * 60000, maxBuffer: 256 * 1024 * 1024 });
+  const call = model => spawnSync('codex', cargsFor(model), { input: prompt, encoding: 'utf8', timeout: (+(opt('minutes') || 30)) * 60000, maxBuffer: 256 * 1024 * 1024 });
+  run = call(usedModel);
+  // Codex の設定の model が このアカウントで使えないとき（プランが変わったときなど）は、FALLBACK を順に試す
+  for (const m of FALLBACK) {
+    if (opt('model') || run.status === 0 || !/model_not_found|is not supported when using Codex/.test((run.stderr || '') + (run.stdout || ''))) break;
+    tried.push(`${usedModel || 'Codex の設定の model'} → 使えない（${errOf(run)}）`);
+    console.log(`  model が使えなかったので ${m} で やり直す`);
+    usedModel = m; run = call(m);
+  }
   run.sec = Math.round((Date.now() - t0) / 1000);
   if (fs.existsSync(lastPath)) { lastMsg = fs.readFileSync(lastPath, 'utf8'); fs.rmSync(lastPath, { force: true }); }
 } finally {
@@ -140,13 +153,16 @@ try {
 fs.mkdirSync(OUT, { recursive: true });
 const timedOut = run.error && run.error.code === 'ETIMEDOUT';
 const state = timedOut ? '時間切れ' : run.status === 0 && lastMsg.trim() ? '完了' : '失敗（Codex が答えを返さなかった）';
+const why = state === '完了' ? '' : (errOf(run) || (timedOut ? `${opt('minutes') || 30}分で返らなかった` : 'くわしくは .log'));
 const header = `# 独立レビュー（Codex） ${stamp}
 
-- 状態: ${state}
+- 状態: ${state}${why ? `
+- 理由: ${why}` : ''}
 - 対象commit: \`${head}\`
 - 見た範囲: ${range}
 - repo / branch: ${remote} / ${branch}
-- 制作担当 / 独立担当: Claude / Codex（${(ver.stdout || '').trim()}${opt('model') ? '、model ' + opt('model') : ''}）
+- 制作担当 / 独立担当: Claude / Codex（${(ver.stdout || '').trim()}、model ${usedModel || 'Codex の設定のまま'}）${tried.length ? `
+- model のやり直し: ${tried.join(' / ')}` : ''}
 - 命令: \`codex exec --sandbox read-only --ephemeral\`（対象commitの隔離したコピーの中で実行。頼む文は review.js が作る）
 - 終了コード: ${run.status === null ? 'なし' : run.status} / かかった時間: ${run.sec}秒
 - 対象の外: 画面の見え方と通常入力（別の工程）
@@ -158,7 +174,7 @@ const header = `# 独立レビュー（Codex） ${stamp}
 fs.writeFileSync(outFile, header + (lastMsg.trim() ? lastMsg.trim() + '\n' : '（Codex の答えなし）\n'));
 // くわしい記録（Codex が動かした命令など）は、コミットしない .log に残す
 fs.writeFileSync(outFile.replace(/\.md$/, '.log'), `--- stdout ---\n${run.stdout || ''}\n--- stderr ---\n${run.stderr || ''}\n`);
-console.log(`${state}。結果: ${path.relative(ROOT, outFile)}`);
+console.log(`${state}${why ? '（' + why + '）' : ''}。結果: ${path.relative(ROOT, outFile)}`);
 const verdict = /##\s*判定\s*\n+([^\n]+)/.exec(lastMsg);
 if (verdict) console.log('判定: ' + verdict[1].trim());
 process.exit(state === '完了' ? 0 : 1);
