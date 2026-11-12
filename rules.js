@@ -202,7 +202,57 @@
       d.atk.push(a);
     }
     d.elems = elems;
+
+    // ---- 「いま効いているか」（画面の線・点線の札・置く前の数字は、これを使う。戦いの計算には使わない）
+    //   live[i] … マス i のブロックが、いま何かの役に立っているか。
+    //   LL[i]   … マス i と「効いている線」でつながっているマス。 liveLinks … 効いている線の一覧。
+    //   線が効いているのは、両はしが効いているとき（拡散だけは、のせる先の攻撃があるときに限る）。
+    const live = [], LL = [], liveLinks = [];
+    for (let i = 0; i < N; i++) { live.push(false); LL.push([]); }
+    const tp = i => board[i].type, fm = i => B[board[i].type].fam;
+    const near = (i, f) => { const l = L[i]; for (let k = 0; k < l.length; k++) if (f(l[k])) return true; return false; };
+    const atkCells = d.atk.map(a => a.cell);
+    // その属性が、まだ のっていない攻撃があるか（あれば、拡散が役に立つ）
+    const spreadHelps = e => atkCells.some(a => L[a].indexOf(e) < 0);
+    // 1回目：ひとりで働くもの
+    for (let i = 0; i < N; i++) if (isActive(board[i])) { const t = tp(i); if (fm(i) === 'atk' || t === 'shield' || t === 'tough' || t === 'regen' || t === 'dodge') live[i] = true; }
+    // 2回目：攻撃に のるもの（属性・特殊・吸収）、盾がいる反射
+    for (let i = 0; i < N; i++) if (isActive(board[i]) && !live[i]) {
+      const t = tp(i), f = fm(i);
+      if (f === 'spec' || t === 'leech') live[i] = near(i, j => fm(j) === 'atk');
+      else if (f === 'elem') live[i] = near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i));
+      else if (t === 'mirror') live[i] = near(i, j => tp(j) === 'shield');
+    }
+    // 3回目：強化（効いている相手につながっているとき）
+    for (let i = 0; i < N; i++) if (isActive(board[i]) && fm(i) === 'enh') {
+      const t = tp(i);
+      if (t === 'amp') live[i] = near(i, j => live[j] && (fm(j) === 'atk' || fm(j) === 'elem' || (fm(j) === 'def' && tp(j) !== 'dodge')));
+      else if (t === 'pierce') live[i] = near(i, j => fm(j) === 'atk' || (tp(j) === 'mirror' && live[j]));
+      else if (t === 'spread') live[i] = near(i, j => fm(j) === 'elem' && spreadHelps(j));
+      else if (t === 'sustain') live[i] = near(i, j => tp(j) === 'shield' || ((tp(j) === 'poison' || tp(j) === 'fire') && live[j]));
+      else if (t === 'haste') live[i] = near(i, j => fm(j) === 'atk' || tp(j) === 'dodge' || (tp(j) === 'chase' && live[j]));
+      else if (t === 'convert') live[i] = near(i, j => fm(j) === 'atk');
+    }
+    for (let k = 0; k < links.length; k++) {
+      const a = links[k][0], b = links[k][1];
+      let ok = live[a] && live[b];
+      if (ok && tp(a) === 'spread' && fm(b) === 'elem') ok = spreadHelps(b);
+      if (ok && tp(b) === 'spread' && fm(a) === 'elem') ok = spreadHelps(a);
+      if (ok) { LL[a].push(b); LL[b].push(a); liveLinks.push(links[k]); }
+    }
+    d.live = live; d.LL = LL; d.liveLinks = liveLinks;
     return d;
+  }
+
+  // 働いていないブロックに出す ひとこと（何につなげば働くか）
+  function idleHint(type) {
+    const f = B[type].fam;
+    if (f === 'elem') return '攻撃ブロックにつなぐと働く（拡散でも とどく）。';
+    if (f === 'spec' || type === 'leech' || type === 'convert') return '攻撃ブロックにつなぐと働く。';
+    if (type === 'mirror') return '盾につなぐと働く。';
+    if (type === 'spread') return '攻撃につながった属性に つなぐと働く（ほかの攻撃があるとき）。';
+    if (f === 'enh') return '働いているブロックにつなぐと働く。';
+    return '';
   }
 
   // 攻撃スキル1つの説明（画面の「スキル一覧」と同じ数字）
@@ -424,26 +474,25 @@
   function linksIfPlaced(board, type, cell) {
     const b = board.slice(), old = b[cell];
     if (!(old && old.type === type)) b[cell] = mk(type); // 同じ種類に重ねるときは、いまのブロックのまま（レベルが上がるだけ）
-    return derive(b).L[cell].slice();
+    return derive(b).LL[cell].slice(); // 数えるのは「効いている線」だけ
   }
   // 盤面の a のブロックを b と入れかえたら、動かしたブロックがどのマスとつながるか。
   function linksIfSwapped(board, a, b) {
     const c = board.slice(), t = c[a]; c[a] = c[b]; c[b] = t;
-    return c[b] ? derive(c).L[b].slice() : [];
+    return c[b] ? derive(c).LL[b].slice() : [];
   }
-  // 置く前に「数字を出すマス」は、ここ1か所で決める（棚の数字も、盤面の数字も、ここから出す）。
-  //   ① 空きマスと、がれきのマスで、つながる所は全部。
-  //   ② 札のあるマス（置きかえ・重ね）は、①のいちばん多い数より多く つながる所だけ。
-  //   こうすると、いちばん多い数（棚の数字）は「置けるマス全部の中の最大」と同じになり、
-  //   しかも札の上が数字だらけにならない（置きかえた方が得な所だけ出る）。
+  // 置く前に「数字を出すマス」は、ここ1か所で決める。
+  //   ① 空きマスと、がれきのマスで、つながる所。
+  //   ② ①が1つもないとき（満杯のときなど）だけ、札のあるマス（置きかえ・重ね）で つながる所。
+  //   札の上にいつも数字を出すと、画面の情報が多くなりすぎた（本人の感想 2026-11-13）ので、①があるときは出さない。
   function pickSpots(board, countAt, skip) {
-    const open = [], rest = []; let bestOpen = 0;
+    const open = [], rest = [];
     for (let i = 0; i < N; i++) {
       if (skip(i)) continue;
       const n = countAt(i); if (n <= 0) continue;
-      if (!board[i] || board[i].type === 'rubble') { open.push({ cell: i, n }); if (n > bestOpen) bestOpen = n; } else rest.push({ cell: i, n });
+      (!board[i] || board[i].type === 'rubble' ? open : rest).push({ cell: i, n });
     }
-    return open.concat(rest.filter(x => x.n > bestOpen)).sort((x, y) => x.cell - y.cell);
+    return open.length ? open : rest;
   }
   // type を置くと つながるマスと、その数。[{ cell, n }]
   function linkSpots(board, type) {
@@ -467,8 +516,16 @@
     for (const sp of swapSpots(board, a)) for (const j of linksIfSwapped(board, a, sp.cell)) if (j !== a) set[j] = 1;
     return Object.keys(set).map(Number).sort((x, y) => x - y);
   }
-  // type を いま置くなら、いちばん多くて何本つながるか（linkSpots の中で）。
-  function bestLinks(board, type) { let m = 0; for (const x of linkSpots(board, type)) m = Math.max(m, x.n); return m; }
+  // type を いま置くなら、いちばん多くて何本つながるか（置けるマス全部の中で。置きかえ・重ねもふくむ）。
+  // 棚の札を「いまは相手がいない（点線）」にするかどうかに使う。
+  function bestLinks(board, type) {
+    let m = 0;
+    for (let i = 0; i < N; i++) {
+      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // Lv3 の同じ種類には、もう重ねられない
+      m = Math.max(m, linksIfPlaced(board, type, i).length);
+    }
+    return m;
+  }
 
   // キープ：棚のブロックを1個とっておく（手数を使わない）
   function toKeep(s, idx) {
@@ -623,7 +680,7 @@
   return {
     W, H, N, MAXLV, SHOP, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, START_CELL,
     B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
-    needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt,
+    needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt, idleHint,
     newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
     linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, linkMates, swapMates, bestLinks,
     resolve, endTurn, forecast,

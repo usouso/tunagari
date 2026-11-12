@@ -9,6 +9,7 @@
   const $ = s => document.querySelector(s);
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const Q = new URLSearchParams(location.search);
+  if (Q.get('names') === '1') document.documentElement.classList.add('show-names'); // ?names=1 … 盤面の札にも名前を出す（くらべる用）
   const AUTO = Q.get('auto') === '1';
   const MUTE = AUTO || Q.get('mute') === '1';
   const STOP = Q.has('stop') ? +Q.get('stop') : 0; // ?auto=1&stop=5 … 5ターン目で止める（画面の写真用）。&pick=1 … 止めたとき、つながる相手がいる棚の札を1つ選んだ画面にする
@@ -48,8 +49,8 @@
     opt = opt || {};
     const d = R.B[type]; const t = el('div', 'tile');
     t.dataset.fam = d.fam; t.dataset.type = type;
-    let h = `<span class="g">${d.g}</span><span class="n${opt.badge && !opt.sealed ? ' nb' : ''}">${opt.sealed ? `封印 あと${opt.sealed}` : (opt.badge || d.name)}</span>`;
-    if (type !== 'rubble') h += `<span class="lv">${[1, 2, 3].map(i => `<i class="${i <= lv ? 'on' : ''}"></i>`).join('')}</span>`;
+    let h = `<span class="g">${d.g}</span><span class="n${opt.sealed ? ' nseal' : opt.badge ? ' nb' : ''}">${opt.sealed ? `封印 あと${opt.sealed}` : (opt.badge || d.name)}</span>`;
+    if (type !== 'rubble' && lv > 1) h += `<span class="lv">${[1, 2, 3].map(i => `<i class="${i <= lv ? 'on' : ''}"></i>`).join('')}</span>`;
     if (opt.order) h += `<span class="ord">${opt.order}</span>`;
     t.innerHTML = h;
     if (opt.sealed) t.classList.add('sealed');
@@ -96,7 +97,7 @@
       const c = cellEl(i), b = s.board[i];
       c.className = 'cell'; c.innerHTML = '';
       if (b) {
-        const idle = R.isActive(b) && R.needsLink(b.type) && d.L[i].length === 0;
+        const idle = R.isActive(b) && !d.live[i]; // 効いていない札は点線（つながっていても、相手が働いていなければ点線）
         let badge = '';
         if (b.type === 'charge') badge = `たまり${b.charge}`;
         if (b.type === 'dodge' && s.p.dodgeCd > 0) badge = `休み${s.p.dodgeCd}`;
@@ -131,6 +132,10 @@
     let h = '';
     for (const [a, b] of d.links) {
       const xy = jointXY(a, b);
+      if (d.LL[a].indexOf(b) < 0) { // つながっているが、まだ効いていない線
+        h += `<line ${xy} stroke="#8a93a8" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 6" opacity=".7" data-deadlink="${a}-${b}"/>`;
+        continue;
+      }
       const fa = R.B[board[a].type].fam, fb = R.B[board[b].type].fam;
       const col = FAM_COLOR[fa === 'atk' ? fb : (fb === 'atk' ? fa : (fa === 'enh' ? fa : fb))];
       h += `<line ${xy} stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/>`;
@@ -236,12 +241,11 @@
   }
 
   // ------------------------------------------------------------ 棚・キープ
-  function fillSlot(slot, s, type, src) { // 棚・キープの1わく。数字の印は札の外（わくの右上）に出す
-    const t = tileEl(type, 1), n = R.bestLinks(s.board, type);
-    if (n === 0 && R.needsLink(type)) t.classList.add('lk-none');
+  function fillSlot(slot, s, type, src) { // 棚・キープの1わく。いま置いても働かない札は点線（盤面の「働いていない札」と同じ見た目）
+    const t = tileEl(type, 1);
+    if (R.needsLink(type) && R.bestLinks(s.board, type) === 0) t.classList.add('lk-none');
     if (G.sel && G.sel.src === src) t.classList.add('sel');
     slot.appendChild(t);
-    if (n > 0) slot.appendChild(el('span', 'lk', `<i></i>${n}`));
   }
   function renderShop() {
     const s = D(); const box = $('#shop'); box.innerHTML = '';
@@ -288,7 +292,7 @@
     if (G.busy) t = 'あなたの攻撃 → 敵の行動 → ターンの終わり';
     else if (s.phase === 'start') t = G.sel ? '置くマスを選ぼう' : '最初の攻撃ブロックを 棚から1つ選ぼう';
     else if (s.phase === 'place') {
-      if (G.sel && G.sel.src != null) t = '置くマスを選ぼう（数字＝つながる数。重ねるとLvアップ）';
+      if (G.sel && G.sel.src != null) t = '置くマスを選ぼう（数字＝つながる数）';
       else if (G.sel && G.sel.cell != null) t = '入れかえる相手のマスを選ぼう（1手つかう）';
       else if (s.moves > 0) t = `棚のブロックを選んで盤面へ（あと ${s.moves} 手）`;
       else t = '「発動！」を押そう';
@@ -318,7 +322,6 @@
       h += blockHead(type, 1) + `<p>${R.blockText(type, 1)}</p>`;
       const pn = partnersOf(type);
       h += pn.length ? `<p class="sub">つながる相手：${pn.join(' / ')}</p>` : `<p class="sub">ひとりで働く（どこに置いてもよい）。</p>`;
-      h += `<p class="sub">Lv2：${R.blockText(type, 2)}</p>`;
     } else if (info && info.cell != null && s.board[info.cell]) {
       const b = s.board[info.cell], d = G.derived || R.derive(s.board);
       h += blockHead(b.type, b.lv) + `<p>${R.blockText(b.type, b.lv)}</p>`;
@@ -327,9 +330,9 @@
         const a = d.atk.find(x => x.cell === info.cell);
         if (a) h += `<p class="now">いまの働き（${a.order}番目に発動）</p><ul>${R.attackLines(a).map(l => `<li>${l}</li>`).join('')}</ul>`;
         else {
-          const ln = d.L[info.cell].map(j => R.B[s.board[j].type].name);
+          const ln = d.LL[info.cell].map(j => R.B[s.board[j].type].name);
           if (ln.length) h += `<p class="now">つながっている：${ln.join('・')}</p>`;
-          else if (R.needsLink(b.type)) h += `<p class="warn">どこにも つながっていない（いまは働いていない）。</p>`;
+          if (!d.live[info.cell]) h += `<p class="warn">いまは働いていない。${R.idleHint(b.type)}</p>`;
           if (b.type === 'charge') h += `<p class="now">たまり ${b.charge}</p>`;
           if (b.type === 'dodge') h += `<p class="now">${s.p.dodgeCd > 0 ? `休み中（あと${s.p.dodgeCd}ターン）` : 'よける準備ができている'}（休みは ${d.dodgeRest} ターン）</p>`;
         }
@@ -338,9 +341,13 @@
     } else {
       // 何も選んでいないとき：スキルの一覧（発動の順）
       const d = G.derived || R.derive(s.board);
+      if (!G.showSkills) {
+        h += `<p class="sub">ブロックにマウスをのせると、説明が出る。</p><button class="btn" id="btn-skills">スキル一覧を見る</button>`;
+        box.innerHTML = h; return;
+      }
       h += `<h3>スキル一覧 <span class="sub">発動の順</span></h3>`;
       if (!d.atk.length) h += `<p class="sub">攻撃ブロックがない。攻撃ブロックを置くと、ターンごとに発動する。</p>`;
-      for (const a of d.atk) h += `<div class="sk"><b>${a.order}　${R.B[a.type].name} Lv${a.lv}</b><br>${R.attackLines(a).join(' ／ ')}</div>`;
+      for (const a of d.atk) { const ls = R.attackLines(a); h += `<div class="sk"><b>${a.order}　${R.B[a.type].name}</b>　${ls[0]}${ls.length > 1 ? `　<span class="sub">＋効果${ls.length - 1}つ</span>` : ''}</div>`; }
       const df = [];
       if (d.shieldGain) df.push(`シールド+${d.shieldGain}` + (d.shieldKeep ? `（${Math.round(d.shieldKeep * 100)}%残る）` : ''));
       if (d.tough) df.push(`堅牢 ヒットごと−${d.tough}`);
@@ -348,14 +355,14 @@
       if (d.reflect) df.push(`反射 ${Math.round(d.reflect * 100)}%`);
       if (d.regen) df.push(`再生 +${d.regen}`);
       if (df.length) h += `<div class="sk defn"><b>守り</b><br>${df.join(' ／ ')}</div>`;
-      h += `<p class="sub">ブロックにマウスをのせると説明が出る。</p>`;
+      h += `<button class="btn" id="btn-skills">とじる</button>`;
     }
     box.innerHTML = h;
   }
   function highlightLinks(cell) {
     for (const t of document.querySelectorAll('#board .tile.hl')) t.classList.remove('hl');
     if (cell == null || !G.derived) return;
-    for (const j of G.derived.L[cell]) { const t = cellEl(j).querySelector('.tile'); if (t) t.classList.add('hl'); }
+    for (const j of G.derived.LL[cell]) { const t = cellEl(j).querySelector('.tile'); if (t) t.classList.add('hl'); }
   }
 
   function renderAll() {
@@ -512,15 +519,15 @@
   function showHelp() {
     let h = `<h2>あそびかた</h2><ul>
       <li>敵は「次の行動」と「あと何手か」を予告する。その<b>手数</b>だけ、棚のブロックを盤面に置ける。</li>
+      <li>盤面のブロックは字だけで出る。マウスをのせる（スマホはタップ）と、名前と説明が出る。</li>
       <li>置きおわって「発動！」を押すと、<b>あなたの攻撃ブロックが番号順（左上から）に発動 → 敵の行動 → ターンの終わり</b>。盤面は次のターンにも残る。</li>
       <li><b>たて・よこに となり合うブロックは つながる</b>（線が出る）。攻撃ブロックに属性や特殊をつなげると、その攻撃にのる。強化ブロックは、つながったブロックを強くする。</li>
+      <li><b>色のついた線＝いま効いている。</b>うすい点線は「つながっているが、まだ効いていない」（例：攻撃につながっていない毒に、増幅をつないだとき）。</li>
       <li>範囲攻撃だけは、ななめのブロックとも つながる。</li>
       <li>同じ種類の上に重ねると<b>レベルアップ</b>（Lv3まで）。ちがう種類の上に置くと置きかえ。</li>
       <li>盤面のブロックを選んで別のマスを選ぶと<b>入れかえ</b>（1手）。棚の1個を<b>キープ</b>に取っておける（手数なし）。</li>
-      <li>線が出ていない点線のブロックは、つながる相手がいなくて働いていない。</li>
-      <li><b>置く前に、つながる相手が見える。</b>棚のブロックの右上の数字は「いま置くと つながる数」（いちばん多いマスで）。点線の棚ブロックは、いまは相手がいない。</li>
+      <li>点線のブロックは、いまは働いていない（棚の点線のブロックは、いま置いても働かない）。</li>
       <li>棚のブロックを選ぶと、<b>つながる相手が黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
-      <li>ブロックの右下に小さい数字が出たら、「その上に置くと（置きかえ・レベルアップ）、空きマスより多く つながる」という印。がれきの上には、つながるなら いつも出る。</li>
     </ul><h3>ブロック一覧（Lv1の数字）</h3>`;
     for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) {
       h += `<h3 style="color:${FAM_COLOR[f]}">${R.FAMS[f]}</h3><div class="cat">`;
@@ -613,6 +620,7 @@
   $('#btn-end').addEventListener('click', doEnd);
   $('#btn-undo').addEventListener('click', doUndo);
   $('#btn-help').addEventListener('click', showHelp);
+  $('#detail').addEventListener('click', e => { if (e.target.id === 'btn-skills') { G.showSkills = !G.showSkills; renderDetail(); } });
   $('#btn-quit').addEventListener('click', () => { if (!G.busy) showTitle(); });
   $('#speed').addEventListener('change', e => { G.speed = +e.target.value; });
   $('#vol').addEventListener('input', e => { vol = +e.target.value / 100; });
@@ -622,7 +630,7 @@
 
   // ------------------------------------------------------------ 文字の重なり・はみ出しの検査（確認用）
   window.__layoutCheck = function () {
-    const out = { overlaps: 0, offscreen: 0, clipped: 0, pageScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), samples: [] };
+    const out = { overlaps: 0, offscreen: 0, clipped: 0, pageScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), samples: [], textItems: 0, textChars: 0, textBy: {} }; // textItems / textChars … 画面に見えている文字のかたまりの数と、文字数（情報量のめやす）
     const items = [];
     const top = document.querySelector('.overlay:not([hidden])') || document.body;
     const w = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
@@ -636,7 +644,7 @@
         if (cs.overflowY !== 'visible' || cs.overflowX !== 'visible') { const r = a.getBoundingClientRect(); clip = clip ? { l: Math.max(clip.l, r.left), t: Math.max(clip.t, r.top), r: Math.min(clip.r, r.right), b: Math.min(clip.b, r.bottom) } : { l: r.left, t: r.top, r: r.right, b: r.bottom }; }
       }
       if (!vis) continue;
-      const rg = document.createRange(); rg.selectNodeContents(n);
+      const rg = document.createRange(); rg.selectNodeContents(n); let seen = false;
       for (const r of rg.getClientRects()) {
         if (r.width < 1 || r.height < 1) continue;
         let q = { l: r.left, t: r.top, r: r.right, b: r.bottom };
@@ -647,6 +655,7 @@
         }
         if (q.l < -1 || q.r > window.innerWidth + 1) { out.offscreen++; if (out.samples.length < 8) out.samples.push('はみ出し: ' + n.nodeValue.trim().slice(0, 20)); }
         items.push({ q, p, text: n.nodeValue.trim().slice(0, 16) });
+        if (!seen && q.t < window.innerHeight && q.b > 0) { seen = true; const c = n.nodeValue.replace(/\s/g, '').length, box = p.closest('.panel, #center, #top, .overlay'), id = box ? box.id : 'other'; out.textItems++; out.textChars += c; out.textBy[id] = (out.textBy[id] || 0) + c; }
       }
     }
     for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
@@ -660,7 +669,8 @@
   // ------------------------------------------------------------ 自動プレイ（?auto=1）：ボットが画面の操作と同じ関数を通して遊ぶ
   function writeCheck() { // 検査の結果をページに書き出す（check.js が読む）
     let p = document.getElementById('check-out'); if (!p) { p = el('pre'); p.id = 'check-out'; p.hidden = true; document.body.appendChild(p); }
-    p.textContent = JSON.stringify(Object.assign({ w: window.innerWidth, h: window.innerHeight, turn: G.s ? G.s.turn : 0 }, CHECK));
+    const lc = window.__layoutCheck();
+    p.textContent = JSON.stringify(Object.assign({ w: window.innerWidth, h: window.innerHeight, turn: G.s ? G.s.turn : 0, screen: { items: lc.textItems, chars: lc.textChars, by: lc.textBy } }, CHECK));
   }
   let autoSeed = 12345; const autoRand = () => { autoSeed = (autoSeed * 1103515245 + 12345) & 0x7fffffff; return autoSeed / 0x7fffffff; };
   function autoStep() {
@@ -697,6 +707,15 @@
     const act = Bot.chooseAction(G.s, Q.get('bot') === 'random' ? { random: true, rand: autoRand, start: 'slash' } : { start: ['slash', 'shot', 'area'][G.seed % 3] });
     let ok = true;
     const sorted = a => a.slice().sort((x, y) => x - y);
+    { // 盤面の線と点線の札を、いまの計算とくらべる（毎手）
+      const d = R.derive(G.s.board), key = p => Math.min(p[0], p[1]) + '-' + Math.max(p[0], p[1]);
+      const dom = sel => [...document.querySelectorAll(sel)].map(l => { const p = (l.dataset.link || l.dataset.deadlink).split('-').map(Number); return key(p); }).sort().join(' ');
+      const liveWant = d.liveLinks.map(key).sort().join(' '), deadWant = d.links.filter(p => d.LL[p[0]].indexOf(p[1]) < 0).map(key).sort().join(' ');
+      if (dom('#links [data-link]') !== liveWant) CHECK.mismatches.push(`効いている線 [${dom('#links [data-link]')}] / 計算 [${liveWant}]`);
+      if (dom('#links [data-deadlink]') !== deadWant) CHECK.mismatches.push(`効いていない線 [${dom('#links [data-deadlink]')}] / 計算 [${deadWant}]`);
+      for (let i = 0; i < R.N; i++) { const t = cellEl(i).querySelector('.tile'); if (t && R.isActive(G.s.board[i]) && t.classList.contains('idle') !== !d.live[i]) CHECK.mismatches.push(`点線の札がちがう（マス${i}）`); }
+      CHECK.lineChecks = (CHECK.lineChecks || 0) + 1; CHECK.deadSeen = (CHECK.deadSeen || 0) + (deadWant ? 1 : 0);
+    }
     const shownAt = cell => { const m = cellEl(cell).querySelector('.lk-spot b, .lk-pin'); return m ? +m.textContent : 0; };
     const shownAll = () => [...document.querySelectorAll('#board .lk-spot b, #board .lk-pin')].map(m => [+m.closest('.cell').dataset.cell, +m.textContent]).sort((x, y) => x[0] - y[0]).map(x => x[0] + ':' + x[1]).join(' ');
     const glowing = () => sorted([...document.querySelectorAll('#board .tile.lk-mate')].map(t => +t.parentElement.dataset.cell));
@@ -718,14 +737,14 @@
       for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) {
         let max = 0;
         for (let c = 0; c < R.N; c++) if (R.placeKind(G.s, i, c)) max = Math.max(max, R.linksIfPlaced(board, G.s.shop[i], c).length);
-        const pill = $('#shop').children[i].querySelector('.lk'), num = pill ? +pill.textContent : 0;
-        if (num !== max) CHECK.mismatches.push(`棚の数字 ${num} / 置けるマスの最大 ${max}（${G.s.shop[i]}）`);
+        const dashed = !!$('#shop').children[i].querySelector('.tile.lk-none'), want0 = R.needsLink(G.s.shop[i]) && max === 0;
+        if (dashed !== want0) CHECK.mismatches.push(`棚の点線 ${dashed} / 計算 ${want0}（${G.s.shop[i]}、置けるマスの最大 ${max}）`);
         CHECK.shopChecks = (CHECK.shopChecks || 0) + 1;
       }
       CHECK.placeChecks = (CHECK.placeChecks || 0) + 1;
       sampleLayout();
       ok = doPlace(act.src, act.cell);
-      const got = ok ? sorted(G.derived.L[act.cell]) : want;
+      const got = ok ? sorted(G.derived.LL[act.cell]) : want;
       if (String(got) !== String(want)) CHECK.mismatches.push(`置く前の予告と置いた後のつながりがちがう（マス${act.cell}）`);
     } else if (act.type === 'swap') {
       const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b));
@@ -740,7 +759,7 @@
       CHECK.swapChecks = (CHECK.swapChecks || 0) + 1;
       sampleLayout();
       ok = doSwap(act.a, act.b);
-      const got = ok && G.s.board[act.b] ? sorted(G.derived.L[act.b]) : want;
+      const got = ok && G.s.board[act.b] ? sorted(G.derived.LL[act.b]) : want;
       if (String(got) !== String(want)) CHECK.mismatches.push(`入れかえる前の予告と、入れかえた後のつながりがちがう（マス${act.b}）`);
     } else {
       // 手数が0のとき：棚の札を選んでも、置けないマスに数字が出ないこと

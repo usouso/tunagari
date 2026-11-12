@@ -102,7 +102,12 @@ button, select, input { font: inherit; color: inherit; }
 
 /* 盤面 */
 #guide { min-height: 30px; font-size: 16px; font-weight: 700; color: var(--shock); text-align: center; }
-#order-note { font-size: 13px; color: var(--sub); }
+/* 盤面の札は字だけ（名前は棚と説明に出る）。たまり・休み・封印の ふだ は出す。?names=1 で名前も出る */
+#board .tile .n:not(.nb):not(.nseal) { display: none; }
+#board .tile .g { font-size: calc(var(--ts) * .42); }
+.show-names #board .tile .n:not(.nb):not(.nseal) { display: inline; }
+.show-names #board .tile .g { font-size: calc(var(--ts) * .40); }
+#btn-skills { margin-top: 8px; font-size: 14px; padding: 5px 12px; }
 #board-wrap { position: relative; padding: 10px; background: #0d0f14; border: 1px solid var(--line); border-radius: 16px; }
 #board { display: grid; grid-template-columns: repeat(5, var(--cell)); grid-template-rows: repeat(5, var(--cell)); gap: var(--gap); }
 #links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -156,9 +161,7 @@ button, select, input { font: inherit; color: inherit; }
 .lk-spot b { font-size: calc(var(--cell) * .3); line-height: 1; }
 .lk-spot span { font-size: 12px; line-height: 1.2; white-space: nowrap; }
 .cell.aim-destroy .lk-spot, .cell.aim-seal .lk-spot, .cell.aim-rubble .lk-spot { padding-bottom: 20px; }
-#shop-note { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 8px; font-size: 13px; color: var(--sub); line-height: 1.4; }
-#shop-note > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.lk-ex { width: 16px; height: 16px; border-radius: 5px; border: 2px dashed #8a93a8; }
+
 .tile.fx-fire { animation: fx-fire .26s ease-out; z-index: 2; }
 @keyframes fx-fire { 0% { transform: scale(1.14); box-shadow: 0 0 18px 4px var(--fc); } 100% { transform: scale(1); box-shadow: none; } }
 .tile.fx-new { animation: fx-new .22s ease-out; }

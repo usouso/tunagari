@@ -228,16 +228,16 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   const cells = a => a.map(x => x.cell + ':' + x.n).join(' ');
   const g = {}; for (let i = 0; i < R.N; i++) g[i] = 'shield'; delete g[6]; g[11] = 'slash'; g[13] = 'slash'; // 6だけ空き、11と13が斬撃
   const b = setup(g).board;
-  eq('空きは1本、置きかえは2本 → 両方出す', cells(R.linkSpots(b, 'poison')), '6:1 12:2');
-  eq('棚の数字は、置きかえをふくめた最大', R.bestLinks(b, 'poison'), 2);
+  eq('空きで つながる所があるとき、札の上には数字を出さない（置きかえの方が多くても）', cells(R.linkSpots(b, 'poison')), '6:1');
+  eq('いちばん多い数（棚の点線の判定に使う）は、置きかえをふくめた最大', R.bestLinks(b, 'poison'), 2);
   eq('置きかえても同じ数の所は出さない（札の上を数字だらけにしない）', R.linkSpots(b, 'poison').some(x => x.cell === 16), false);
   // 入れかえも同じ決まり（レビュー4回目の指摘2）：0の毒を動かす。空き6は1本、札のある12は2本 → 両方出す
   const m = setup(Object.assign({}, g, { 0: 'poison' })).board;
-  eq('入れかえ：空きは1本、札のある所は2本 → 両方出す', cells(R.swapSpots(m, 0)), '6:1 12:2');
-  eq('入れかえの光る相手は、その2か所の相手', R.swapMates(m, 0), [11, 13]);
+  eq('入れかえ：空きで つながる所があるとき、札の上には出さない', cells(R.swapSpots(m, 0)), '6:1');
+  eq('入れかえの光る相手は、数字のマスの相手だけ', R.swapMates(m, 0), [11]);
   // 小さい数字は、重ね（レベルアップ）先にも出る。がれきは、つながるなら空きより少なくても出る（レビュー4回目の指摘1）
   const up = setup(Object.assign({}, g, { 12: 'poison' })).board;
-  eq('重ねる先（同じ種類）にも、空きより多ければ数字が出る', cells(R.linkSpots(up, 'poison')), '6:1 12:2');
+  eq('重ねる先（同じ種類）にも、空きで つながる所があるときは出さない', cells(R.linkSpots(up, 'poison')), '6:1');
   const rb = Object.assign({}, g, { 6: 'rubble' }); delete rb[12];
   eq('がれきは、空きより少なくても出る', cells(R.linkSpots(setup(rb).board, 'poison')), '6:1 12:2');
   // 棚の数字は、置けるマス全部を1つずつ数えた最大と、いつも同じ（でたらめな盤面300個）
@@ -250,10 +250,13 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
       let max = 0;
       for (let i = 0; i < R.N; i++) { const c = s.board[i]; if (c && c.type === type && c.lv >= R.MAXLV) continue; max = Math.max(max, R.linksIfPlaced(s.board, type, i).length); }
       if (R.bestLinks(s.board, type) !== max) bad++;
+      const sp = R.linkSpots(s.board, type), openHit = sp.some(x => !s.board[x.cell] || s.board[x.cell].type === 'rubble');
+      if (openHit && sp.some(x => s.board[x.cell] && s.board[x.cell].type !== 'rubble')) bad++; // 空きに出るときは、札の上に出さない
+      if (!sp.length && max > 0) bad++; // つながる所があるのに、数字のマスが1つもない、は起きない
       for (const sp of R.linkSpots(s.board, type)) if (R.linksIfPlaced(s.board, type, sp.cell).length !== sp.n) bad++;
     }
   }
-  eq('棚の数字＝置けるマス全部の最大（でたらめな盤面300個×24種類）', bad, 0);
+  eq('いちばん多い数＝置けるマス全部の最大／数字のマスの決まり（でたらめな盤面300個×24種類）', bad, 0);
 }
 // 光らせる相手（linkMates / swapMates）は、本当に つながる札だけ（レビュー2回目の指摘2）
 {
@@ -266,6 +269,61 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   eq('入れかえの光る相手', R.swapMates(setup({ 12: 'slash', 0: 'poison' }).board, 0), [12]);
   const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
   eq('入れかえの光る相手：封印中の札を選んだとき → なし', R.swapMates(sealed, 0), []);
+}
+// 「効いている」の計算（derive の live / LL / liveLinks）。線は、両はしが効いているときだけ「効いている線」
+{
+  const D = c => R.derive(setup(c).board);
+  const key = l => l.map(p => p.join('-')).join(' ');
+  let d = D({ 12: 'poison', 13: 'amp' });
+  eq('攻撃のない毒＋増幅：つながってはいる', key(d.links), '12-13');
+  eq('攻撃のない毒＋増幅：効いている線はない', key(d.liveLinks), '');
+  eq('攻撃のない毒＋増幅：どちらも働いていない', [d.live[12], d.live[13]], [false, false]);
+  eq('置く前：攻撃のない毒のとなりに増幅 → 0本', R.linksIfPlaced(setup({ 12: 'poison' }).board, 'amp', 13), []);
+  d = D({ 11: 'slash', 12: 'poison', 13: 'amp' });
+  eq('斬撃＋毒＋増幅：2本とも効いている', key(d.liveLinks), '11-12 12-13');
+  eq('斬撃＋毒＋増幅：全部働いている', [d.live[11], d.live[12], d.live[13]], [true, true, true]);
+  eq('置く前：斬撃を置くと、毒と1本（毒と増幅の線は、数に入れない）', R.linksIfPlaced(setup({ 12: 'poison', 13: 'amp' }).board, 'slash', 11), [12]);
+  d = D({ 12: 'slash' });
+  eq('攻撃はひとりで働く', d.live[12], true);
+  d = D({ 0: 'shield', 1: 'tough', 2: 'regen', 3: 'dodge', 10: 'leech', 20: 'mirror', 22: 'chase', 24: 'charge' });
+  eq('盾・堅牢・再生・回避はひとりで働く', [d.live[0], d.live[1], d.live[2], d.live[3]], [true, true, true, true]);
+  eq('吸収・反射・追撃・蓄積は、相手がいないと働かない', [d.live[10], d.live[20], d.live[22], d.live[24]], [false, false, false, false]);
+  d = D({ 12: 'chase', 13: 'haste' });
+  eq('攻撃のない追撃＋加速：効いていない', [d.live[12], d.live[13], key(d.liveLinks)], [false, false, '']);
+  d = D({ 11: 'slash', 12: 'chase', 13: 'haste' });
+  eq('斬撃＋追撃＋加速：効いている', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '11-12 12-13']);
+  d = D({ 12: 'dodge', 13: 'haste' });
+  eq('回避＋加速：効いている', [d.live[13], key(d.liveLinks)], [true, '12-13']);
+  d = D({ 12: 'shield', 13: 'sustain' });
+  eq('盾＋持続強化：効いている', [d.live[13], key(d.liveLinks)], [true, '12-13']);
+  d = D({ 12: 'poison', 13: 'sustain' });
+  eq('攻撃のない毒＋持続強化：効いていない', [d.live[13], key(d.liveLinks)], [false, '']);
+  // 拡散：属性が まだ のっていない攻撃があるときだけ役に立つ
+  d = D({ 11: 'slash', 12: 'poison', 13: 'spread' });
+  eq('拡散：毒がもう全部の攻撃に のっている → 拡散は効いていない', [d.live[13], key(d.liveLinks)], [false, '11-12']);
+  d = D({ 11: 'slash', 12: 'poison', 13: 'spread', 24: 'shot' });
+  eq('拡散：はなれた攻撃がある → 効いている', [d.live[13], key(d.liveLinks)], [true, '11-12 12-13']);
+  d = D({ 12: 'poison', 13: 'spread', 24: 'shot' });
+  eq('拡散：攻撃につながっていない毒も、拡散で とどけば働く', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '12-13']);
+  ok('　そのとき、はなれた攻撃に毒が のっている', d.atk[0].elem.poison > 0);
+  d = D({ 12: 'slash', 13: 'pierce' });
+  eq('斬撃＋貫通：効いている', key(d.liveLinks), '12-13');
+  d = D({ 12: 'leech', 13: 'amp' });
+  eq('攻撃のない吸収＋増幅：効いていない', key(d.liveLinks), '');
+  const s2 = setup({ 11: 'slash', 12: 'poison' }).board; s2[11].sealed = 2;
+  eq('封印中の攻撃につないだ毒は、働いていない', R.derive(s2).live[12], false);
+  // 効いている・いないの印は、戦いの計算と合っている：効いていない札を全部どけても、ダメージは同じ（でたらめな盤面200個）
+  let x = 99, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
+  for (let t = 0; t < 200; t++) {
+    const mk1 = () => { const s = setup({}, [atk(12, 2)]); return s; };
+    const a = mk1(), fill = 0.2 + rnd() * 0.6;
+    for (let i = 0; i < R.N; i++) if (rnd() < fill) { const k = R.mk(R.TYPES[(rnd() * R.TYPES.length) | 0]); k.lv = 1 + ((rnd() * 3) | 0); a.board[i] = k; }
+    const b = mk1(); const dv = R.derive(a.board);
+    for (let i = 0; i < R.N; i++) b.board[i] = a.board[i] && dv.live[i] ? JSON.parse(JSON.stringify(a.board[i])) : null;
+    R.resolve(a); R.resolve(b);
+    if (a.stats.total !== b.stats.total || a.stats.taken !== b.stats.taken || a.e.hp !== b.e.hp || a.p.hp !== b.p.hp) bad++;
+  }
+  eq('効いていない札を全部どけても、1ターンの結果は同じ（でたらめな盤面200個）', bad, 0);
 }
 // 反射は、盾とつながっているときだけ働く。盾がないとき、貫通との線は出ない
 {
@@ -298,7 +356,7 @@ for (const id of R.ENEMY_IDS) for (let seed = 1; seed <= 6; seed++) {
       const at = act.type === 'place' ? act.cell : act.b;
       if (Bot.apply(s, act) !== 'bad') {
         preChecks++;
-        const got = s.board[at] ? R.derive(s.board).L[at] : [];
+        const got = s.board[at] ? R.derive(s.board).LL[at] : [];
         if (String(got.slice().sort((x, y) => x - y)) !== String(want.slice().sort((x, y) => x - y))) preMismatch++;
         continue;
       }
