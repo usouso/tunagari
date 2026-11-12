@@ -212,6 +212,28 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
   eq('入れかえの数字のマス：封印中の札は出さない', R.swapSpots(sealed, 0), []);
 }
+// 空きはあるが、空きでは どこにも つながらないとき → 置きかえで つながるマスを出す（レビュー2回目の指摘1）
+{
+  const cells = a => a.map(x => x.cell).sort((x, y) => x - y);
+  const one = {}; for (let i = 1; i < R.N; i++) one[i] = 'shield'; one[12] = 'slash'; // マス0だけ空き
+  eq('数字のマス：空きでは つながらない → 置きかえのマスを出す', cells(R.linkSpots(setup(one).board, 'poison')), [7, 11, 13, 17]);
+  eq('そのときも、棚の数字は0にならない', R.bestLinks(setup(one).board, 'poison'), 1);
+  const mv = Object.assign({}, one, { 20: 'poison' });
+  eq('入れかえも同じ：空きでは つながらない → 入れかえ先を出す', cells(R.swapSpots(setup(mv).board, 20)), [7, 11, 13, 17]);
+  eq('空きで つながるマスがあるときは、空きだけ', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield' }).board, 'poison')), [7, 11, 17]);
+}
+// 光らせる相手（linkMates / swapMates）は、本当に つながる札だけ（レビュー2回目の指摘2）
+{
+  eq('光る相手：斬撃に毒', R.linkMates(setup({ 12: 'slash' }).board, 'poison'), [12]);
+  eq('光る相手：盾のない反射と貫通 → 光らない（表では合うが、つながらない）', R.linkMates(setup({ 12: 'pierce' }).board, 'mirror'), []);
+  ok('表では 反射と貫通は合う', R.works('mirror', 'pierce'));
+  eq('光る相手：盾があれば、反射の相手として盾も貫通も光る', R.linkMates(setup({ 12: 'pierce', 14: 'shield' }).board, 'mirror'), [12, 14]);
+  eq('光る相手：合う札でも、封印中は光らない', R.linkMates((() => { const b = setup({ 12: 'slash' }).board; b[12].sealed = 2; return b; })(), 'poison'), []);
+  eq('光る相手：合わない札は光らない', R.linkMates(setup({ 12: 'slash', 14: 'shield' }).board, 'poison'), [12]);
+  eq('入れかえの光る相手', R.swapMates(setup({ 12: 'slash', 0: 'poison' }).board, 0), [12]);
+  const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
+  eq('入れかえの光る相手：封印中の札を選んだとき → なし', R.swapMates(sealed, 0), []);
+}
 // 反射は、盾とつながっているときだけ働く。盾がないとき、貫通との線は出ない
 {
   const a = R.derive(setup({ 12: 'pierce', 13: 'mirror' }).board);

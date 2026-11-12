@@ -65,7 +65,7 @@ async function main() {
     for (const id of (quick ? ['mage'] : ENEMIES)) cases.push({ name: `${sn} ${id} 6ターン目で止める`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=11&stop=6`, stop: true });
     cases.push({ name: `${sn} golem 棚の札を選んだ画面（つながる相手の表示）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&stop=5&pick=1', stop: true, pick: true });
   }
-  let fail = 0, n = 0; const rows = [];
+  let fail = 0, n = 0; const rows = []; const total = { place: 0, swap: 0, zero: 0 };
   for (const c of cases) {
     n++;
     const win = c.pc ? `--window-size=${c.w + DW},${c.h + DH}` : `--window-size=${500 + DW},${c.h + DH}`;
@@ -83,6 +83,9 @@ async function main() {
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
       if (!c.title && !c.stop && !c.lose && !(k.zeroMoveChecks > 0)) bad.push('手数0のときの「つながる」表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.mates > 0 && k.picked.spots > 0)) bad.push('つながる相手の表示が出ていない（光る札・数字のマスがない）');
+      if (c.pick && !(k.pickedSwap && k.pickedSwap.spots > 0)) bad.push('入れかえの「つながる」表示の検査が動かなかった');
+      if (!c.title && !c.stop && !c.lose && !(k.placeChecks > 0)) bad.push('置く前の「つながる」表示の検査が、1回も動かなかった');
+      if (k) { total.place += k.placeChecks || 0; total.swap += k.swapChecks || 0; total.zero += k.zeroMoveChecks || 0; }
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;
       if (L.overlaps) bad.push(`文字の重なり ${L.overlaps}（${L.notes.slice(0, 3).join(' / ')}）`);
@@ -104,7 +107,8 @@ async function main() {
   }
   server.close();
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* 残っても害はない */ }
-  console.log(`\n画面の検査: ${n - fail} / ${n} 合格、失敗 ${fail}`);
+  console.log(`\n「つながる」表示をくらべた回数: 置く前 ${total.place} / 入れかえ（自動プレイの中）${total.swap} / 手数0 ${total.zero}`);
+  console.log(`画面の検査: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }
 main();

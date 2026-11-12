@@ -432,26 +432,46 @@
     return c[b] ? derive(c).L[b].slice() : [];
   }
   // 置く前に「数字を出すマス」は、ここ1か所で決める（棚の数字も、盤面の数字も、ここから出す）。
-  //   空きマスと、がれきのマス。空きも がれきも ないとき（満杯）は、全部のマス（置きかえ・重ね）。
-  function spotCells(board) {
-    const open = [], all = [];
-    for (let i = 0; i < N; i++) { all.push(i); if (!board[i] || board[i].type === 'rubble') open.push(i); }
-    return open.length ? open : all;
-  }
+  //   まず「空きマスと、がれきのマス」の中で つながるマス。
+  //   そこに1つもないとき（満杯のとき、空きはあるが どこにも つながらないとき）は、全部のマスから（置きかえ・重ね）。
+  //   いつも全部のマスに出さないのは、札の上が数字だらけになるのをさけるため。
+  function openCells(board) { const open = []; for (let i = 0; i < N; i++) if (!board[i] || board[i].type === 'rubble') open.push(i); return open; }
+  const ALL_CELLS = []; for (let i = 0; i < N; i++) ALL_CELLS.push(i);
   // type を置くと つながるマスと、その数。[{ cell, n }]
   function linkSpots(board, type) {
-    const out = [];
-    for (const i of spotCells(board)) {
-      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
-      const n = linksIfPlaced(board, type, i).length; if (n > 0) out.push({ cell: i, n });
-    }
-    return out;
+    const scan = cells => {
+      const out = [];
+      for (const i of cells) {
+        const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
+        const n = linksIfPlaced(board, type, i).length; if (n > 0) out.push({ cell: i, n });
+      }
+      return out;
+    };
+    const first = scan(openCells(board));
+    return first.length ? first : scan(ALL_CELLS);
   }
   // 盤面の a のブロックを動かすと つながるマスと、その数。封印中のブロックは、動かしても つながらない。
   function swapSpots(board, a) {
-    const out = []; if (!isActive(board[a])) return out;
-    for (const i of spotCells(board)) { if (i === a) continue; const n = linksIfSwapped(board, a, i).length; if (n > 0) out.push({ cell: i, n }); }
-    return out;
+    if (!isActive(board[a])) return [];
+    const scan = cells => {
+      const out = [];
+      for (const i of cells) { if (i === a) continue; const n = linksIfSwapped(board, a, i).length; if (n > 0) out.push({ cell: i, n }); }
+      return out;
+    };
+    const first = scan(openCells(board));
+    return first.length ? first : scan(ALL_CELLS);
+  }
+  // 光らせる相手：数字のマスのどれかに置いた（動かした）とき、本当に つながる札のマス。
+  // works の表だけで決めない（表では合っていても、盾のない反射と貫通のように、つながらない組がある）。
+  function linkMates(board, type) {
+    const set = {};
+    for (const sp of linkSpots(board, type)) for (const j of linksIfPlaced(board, type, sp.cell)) set[j] = 1;
+    return Object.keys(set).map(Number).sort((x, y) => x - y);
+  }
+  function swapMates(board, a) {
+    const set = {};
+    for (const sp of swapSpots(board, a)) for (const j of linksIfSwapped(board, a, sp.cell)) if (j !== a) set[j] = 1;
+    return Object.keys(set).map(Number).sort((x, y) => x - y);
   }
   // type を いま置くなら、いちばん多くて何本つながるか（linkSpots の中で）。
   function bestLinks(board, type) { let m = 0; for (const x of linkSpots(board, type)) m = Math.max(m, x.n); return m; }
@@ -611,7 +631,7 @@
     B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
     needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt,
     newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
-    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, bestLinks,
+    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, linkMates, swapMates, bestLinks,
     resolve, endTurn, forecast,
   };
 });
