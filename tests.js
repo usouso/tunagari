@@ -167,20 +167,59 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   ok(`works 対称 ${a}/${b}`, R.works(a, b) === R.works(b, a));
   if (R.B[a].fam === 'enh' && R.B[b].fam === 'enh') ok(`強化どうしは無関係 ${a}/${b}`, !R.works(a, b));
 }
+// 置く前の「つながる」表示（linksIfPlaced / linksIfSwapped / bestLinks）
+{
+  const s = setup({ 12: 'slash' }), b = s.board;
+  eq('置く前：毒を斬撃のとなりに → つながる', R.linksIfPlaced(b, 'poison', 13), [12]);
+  eq('置く前：毒を1マスあけて → つながらない', R.linksIfPlaced(b, 'poison', 14), []);
+  eq('置く前：毒を ななめに → つながらない', R.linksIfPlaced(b, 'poison', 6), []);
+  eq('置く前：増幅を斬撃のとなりに → つながる', R.linksIfPlaced(b, 'amp', 13), [12]);
+  eq('置く前：拡散を斬撃のとなりに → つながらない（相手は属性だけ）', R.linksIfPlaced(b, 'spread', 13), []);
+  eq('置く前：盾を斬撃のとなりに → つながらない', R.linksIfPlaced(b, 'shield', 13), []);
+  eq('置く前：いちばん多い数（毒）は1', R.bestLinks(b, 'poison'), 1);
+  eq('置く前：相手がいない札（拡散）は0', R.bestLinks(b, 'spread'), 0);
+  eq('置く前の計算は盤面を変えない', JSON.stringify(b), JSON.stringify(setup({ 12: 'slash' }).board));
+  const a = setup({ 12: 'area' }).board;
+  eq('置く前：範囲攻撃には ななめでも つながる', R.linksIfPlaced(a, 'poison', 6), [12]);
+  const two = setup({ 12: 'slash', 14: 'shot' }).board;
+  eq('置く前：攻撃2つの間に毒 → 2本', R.linksIfPlaced(two, 'poison', 13).sort((x, y) => x - y), [12, 14]);
+  eq('置く前：いちばん多い数は2', R.bestLinks(two, 'poison'), 2);
+  const st = setup({ 12: 'slash', 13: 'poison' }).board;
+  eq('置く前：同じ種類に重ねても つながりは同じ', R.linksIfPlaced(st, 'slash', 12), [13]);
+  eq('置く前：ちがう種類で置きかえると、新しい札のつながりになる', R.linksIfPlaced(st, 'shield', 13), []);
+  const sl = setup({ 12: 'slash' }).board; sl[12].sealed = 2;
+  eq('置く前：封印中の札とは つながらない', R.linksIfPlaced(sl, 'poison', 13), []);
+  const mx = setup({ 12: 'slash3' }).board;
+  eq('置く前：Lv3の同じ種類しかないとき、そのマスは数えない', R.bestLinks(mx, 'slash'), 0);
+  const sw = setup({ 12: 'slash', 0: 'poison' }).board;
+  eq('入れかえる前：毒を斬撃のとなりへ → つながる', R.linksIfSwapped(sw, 0, 13), [12]);
+  eq('入れかえる前：毒を遠くへ → つながらない', R.linksIfSwapped(sw, 0, 24), []);
+  eq('入れかえる前：毒と斬撃を入れかえると、はなれる', R.linksIfSwapped(sw, 0, 12), []);
+}
 // 画面に出す線（links）と、計算に使うつながりは同じもの
 { const s = setup({ 12: 'area', 18: 'amp', 13: 'poison', 14: 'sustain', 7: 'haste', 2: 'dodge', 0: 'shield', 1: 'mirror' }); const d = R.derive(s.board);
   const key = l => l.map(p => p.join('-')).sort().join(' ');
   eq('線の一覧', key(d.links), key([[12, 18], [12, 13], [13, 14], [13, 18], [7, 12], [2, 7], [0, 1]])); }
 
 // ---- 通し：ボットが遊んでも、こわれない・予想と結果が合う・同じ種なら同じ結果
-let fcMismatch = 0, bad = 0, games = 0, maxHits = 0;
+let fcMismatch = 0, bad = 0, games = 0, maxHits = 0, preMismatch = 0, preChecks = 0;
 for (const id of R.ENEMY_IDS) for (let seed = 1; seed <= 6; seed++) {
   const s = R.newGame(id, seed * 7919); games++;
   const rand = (() => { let x = seed * 99 + 1; return () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; }; })();
   let guard = 0;
   while ((s.phase === 'start' || s.phase === 'place') && s.turn < 30 && guard++ < 3000) {
     const act = seed % 2 ? Bot.chooseAction(s, {}) : Bot.chooseAction(s, { random: true, rand });
-    if (act.type !== 'end' && Bot.apply(s, act) !== 'bad') continue;
+    if (act.type !== 'end') {
+      // 置く前の「つながる」予告は、置いた後の本物のつながりと同じ
+      const want = act.type === 'place' ? R.linksIfPlaced(s.board, R.srcType(s, act.src), act.cell) : R.linksIfSwapped(s.board, act.a, act.b);
+      const at = act.type === 'place' ? act.cell : act.b;
+      if (Bot.apply(s, act) !== 'bad') {
+        preChecks++;
+        const got = s.board[at] ? R.derive(s.board).L[at] : [];
+        if (String(got.slice().sort((x, y) => x - y)) !== String(want.slice().sort((x, y) => x - y))) preMismatch++;
+        continue;
+      }
+    }
     const f = R.forecast(s), t0 = s.stats.total, k0 = s.stats.taken;
     const ev = R.endTurn(s);
     if (f.dealt !== s.stats.total - t0 || f.taken !== s.stats.taken - k0 || f.won !== (s.phase === 'won') || f.lost !== (s.phase === 'lost')) fcMismatch++;
@@ -194,6 +233,8 @@ for (const id of R.ENEMY_IDS) for (let seed = 1; seed <= 6; seed++) {
 }
 eq(`予想と結果のずれ（${games}戦）`, fcMismatch, 0);
 eq('こわれた数字', bad, 0);
+eq(`置く前の「つながる」予告と、置いた後のずれ`, preMismatch, 0);
+ok('置く前の予告を十分な回数くらべた', preChecks > 300, `回数 ${preChecks}`);
 ok('1ターンのヒット数は上限より下', maxHits < 300, `max ${maxHits}`);
 { const a = Bot.playGame('hydra', 4242, {}), b = Bot.playGame('hydra', 4242, {});
   eq('同じ種なら同じ結果', [a.phase, a.turn, a.e.hp, a.p.hp, a.stats.total], [b.phase, b.turn, b.e.hp, b.p.hp, b.stats.total]); }

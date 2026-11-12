@@ -5,7 +5,8 @@
  *         node check.js quick    （少なめ）
  * 失敗にするもの（終了コード1）:
  *   ページのエラー / 決着まで行かない / 表示と計算のずれ / 予想と結果のずれ /
- *   文字の重なり / 画面からのはみ出し / 文字の切れ / パソコン寸法でのページのスクロール
+ *   文字の重なり / 画面からのはみ出し / 文字の切れ / パソコン寸法でのページのスクロール /
+ *   置く前の「つながる数」の表示と、置いた後の本物のつながりのずれ / つながる相手の表示が出ない
  * 画面の写真は screenshots/ に保存する。
  * 注意: これは自動プレイの検査。人が実際にクリックして通す確認は別（REPORT.md を見る）。
  */
@@ -47,15 +48,22 @@ async function main() {
   const pk = pm ? JSON.parse(pm[1].replace(/&quot;/g, '"')) : { w: 1000, h: 800 };
   const DW = 1000 - pk.w, DH = 800 - pk.h;
   console.log(`窓と中身の差: 幅${DW} 高さ${DH}`);
-  const SIZES = [['pc1366', 1366, 650, true], ['pc1920', 1920, 910, true], ['phone', 375, 812, false]];
+  // 4つ目の pc1366x768 は、たて長めの窓（棚の札が大きくなる側）。場面を少なめにして回す
+  const SIZES = [['pc1366', 1366, 650, true], ['pc1920', 1920, 910, true], ['phone', 375, 812, false], ['pc1366x768', 1366, 768, true, true]];
   const ENEMIES = ['golem', 'hunter', 'hydra', 'mage', 'berserk'];
   const seeds = quick ? [11] : [11, 222, 3333];
   const cases = [];
-  for (const [sn, w, h, pc] of SIZES) {
+  for (const [sn, w, h, pc, lite] of SIZES) {
     cases.push({ name: `${sn} タイトル`, sn, w, h, pc, q: 'auto=1', title: true });
+    if (lite) {
+      cases.push({ name: `${sn} golem 種11 通し`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11' });
+      cases.push({ name: `${sn} golem 棚の札を選んだ画面（つながる相手の表示）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&stop=5&pick=1', stop: true, pick: true });
+      continue;
+    }
     for (const id of ENEMIES) for (const seed of (sn === 'pc1366' ? seeds : [seeds[0]])) cases.push({ name: `${sn} ${id} 種${seed} 通し`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=${seed}` });
     cases.push({ name: `${sn} berserk でたらめ置き（負けの画面）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=berserk&seed=11&bot=random', lose: true });
     for (const id of (quick ? ['mage'] : ENEMIES)) cases.push({ name: `${sn} ${id} 6ターン目で止める`, sn, w, h, pc, q: `auto=1&speed=0&enemy=${id}&seed=11&stop=6`, stop: true });
+    cases.push({ name: `${sn} golem 棚の札を選んだ画面（つながる相手の表示）`, sn, w, h, pc, q: 'auto=1&speed=0&enemy=golem&seed=11&stop=5&pick=1', stop: true, pick: true });
   }
   let fail = 0, n = 0; const rows = [];
   for (const c of cases) {
@@ -73,6 +81,7 @@ async function main() {
       if (!c.title && !c.stop && !(k.done && k.result && (k.result.phase === 'won' || k.result.phase === 'lost'))) bad.push('決着まで行かなかった');
       if (c.stop && !k.stopped && !k.done) bad.push('止まる所まで行かなかった');
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
+      if (c.pick && !(k.picked && k.picked.mates > 0 && k.picked.spots > 0)) bad.push('つながる相手の表示が出ていない（光る札・数字のマスがない）');
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;
       if (L.overlaps) bad.push(`文字の重なり ${L.overlaps}（${L.notes.slice(0, 3).join(' / ')}）`);
@@ -86,8 +95,10 @@ async function main() {
     rows.push(`${bad.length ? '✗' : '✓'} ${c.name}  ${info}${bad.length ? '\n    → ' + bad.join('\n    → ') : ''}`);
     console.log(rows[rows.length - 1]);
     if (c.title || c.stop || c.lose || /種11 通し/.test(c.name)) {
-      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.stop ? '-turn6' : c.lose ? '-lose' : '-result')}.png`);
-      await chrome(common.concat([win, `--screenshot=${file}`, url]));
+      const file = path.join(ROOT, 'screenshots', `${c.sn}-${c.title ? 'title' : c.q.match(/enemy=(\w+)/)[1] + (c.pick ? '-links' : c.stop ? '-turn6' : c.lose ? '-lose' : '-result')}.png`);
+      // 写真をとるときは、窓の大きさがそのまま中身の大きさになる（ふちの分を足さない）
+      const shot = c.pc ? `--window-size=${c.w},${c.h}` : `--window-size=500,${c.h}`;
+      await chrome(common.concat([shot, `--screenshot=${file}`, url]));
     }
   }
   server.close();

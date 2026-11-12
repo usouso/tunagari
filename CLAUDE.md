@@ -11,11 +11,13 @@
 - `bot.js` … ビルドのかたよりを調べる集計（`node bot.js` / `picks` / `ban` / `growth`）。
 - `check.js` … 画面の機械検査（ヘッドレスの Chrome。`node check.js`）。写真は `screenshots/`。
 - `server.js` … 確認用の小さなサーバー（127.0.0.1:8437）。`index.html` を直接開いても遊べる。
+- `review.js` … Codex に独立レビューを頼む（`node review.js` / `all` / `dry`）。結果は `reviews/` に残る。
 
 ## きまり
 - ルールを変えたら `node tests.js` と `node check.js` を通す。数字を変えたら `node bot.js` の表も見る。
 - 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `attackLines` / `intentLines` を使う）。
-- 演出用の CSS の class は `fx-` で始める。
+- 演出用の CSS の class は `fx-` で始める。「つながる」表示の class は `lk-` で始める。
+- ルールや画面を変えてコミットしたら、`node review.js` で Codex にレビューを頼む。指摘は読んで、`reviews/` のファイルの「受け取り」と REPORT.md の8章に書く。直したら、もう一度 `node review.js`（同じ指摘の直しと再テストは3回まで）。Codex のレビューは「コードと `node tests.js`」まで。画面と通常入力は別に確かめる。
 - 公開：2026-11-12 に本人が「GitHub Pages で公開する」と決めた。公開先は https://usouso.github.io/tunagari/ （リポジトリ usouso/tunagari、branch は main。2026-11-12 に公開ずみ）。main への push が1〜2分後に公開版になる。
 - merge・課金・新規ログイン・アクセスやネットワークの拡大はしない（ユーザー全体の CLAUDE.md のとおり）。ほかのゲームの公開もしない。
 - `docs/game-development/` は公開リポジトリに入れていない（`.gitignore`）。このPCの中だけにあるコピーで、元は `DocumentsGameDevelopment`。

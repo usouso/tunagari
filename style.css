@@ -139,6 +139,25 @@ button, select, input { font: inherit; color: inherit; }
 .tile .seal-mark { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; background: rgba(60, 20, 90, .55); }
 .tile.sel { outline: 3px solid #fff; outline-offset: 1px; z-index: 2; }
 .tile.hl { box-shadow: 0 0 0 3px #fff inset; }
+/* つながる相手を見せる（置く前）。lk- … link の表示 */
+.tile.lk-mate { box-shadow: 0 0 0 3px #ffe27a, 0 0 14px 3px rgba(255, 226, 122, .6); z-index: 1; }
+.tile.lk-mate.hl { box-shadow: 0 0 0 3px #fff inset, 0 0 0 3px #ffe27a, 0 0 14px 3px rgba(255, 226, 122, .6); }
+.tile.lk-dim { opacity: .4; }
+.tile.lk-none { border-style: dashed; filter: saturate(.45) brightness(.8); }
+.lk { display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 5px; border-radius: 9px; background: #ffe27a; color: #111; font-size: 13px; font-weight: 700; line-height: 1; }
+/* 印の絵：2つの札が線でつながった形（ただの横棒だと「マイナス」に見えた） */
+.lk i { position: relative; width: 15px; height: 2px; background: #111; }
+.lk i::before, .lk i::after { content: ''; position: absolute; top: -3px; width: 6px; height: 8px; border-radius: 2px; background: #111; }
+.lk i::before { left: 0; } .lk i::after { right: 0; }
+.slot > .lk { position: absolute; top: -7px; right: -7px; z-index: 3; box-shadow: 0 0 0 2px #0d0f14; pointer-events: none; }
+.cell.lk-good { border: 2px solid #ffe27a; background: #2a2718; }
+.lk-spot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; color: #ffe27a; }
+.lk-spot b { font-size: calc(var(--cell) * .3); line-height: 1; }
+.lk-spot span { font-size: 12px; line-height: 1.2; white-space: nowrap; }
+.cell.aim-destroy .lk-spot, .cell.aim-seal .lk-spot, .cell.aim-rubble .lk-spot { padding-bottom: 20px; }
+#shop-note { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 8px; font-size: 13px; color: var(--sub); line-height: 1.4; }
+#shop-note > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lk-ex { width: 16px; height: 16px; border-radius: 5px; border: 2px dashed #8a93a8; }
 .tile.fx-fire { animation: fx-fire .26s ease-out; z-index: 2; }
 @keyframes fx-fire { 0% { transform: scale(1.14); box-shadow: 0 0 18px 4px var(--fc); } 100% { transform: scale(1); box-shadow: none; } }
 .tile.fx-new { animation: fx-new .22s ease-out; }
@@ -148,6 +167,11 @@ button, select, input { font: inherit; color: inherit; }
 
 /* 右の列 */
 #shop-row { display: flex; gap: 12px; align-items: flex-start; }
+/* 棚の札の大きさは、右の列の幅にも合わせる（たて長めの窓で、キープが右にはみ出していた） */
+@media (min-width: 901px) {
+  #right { container-type: inline-size; }
+  #shop-box { --stile: min(11vh, 96px, calc((100cqw - 62px) / 5)); }
+}
 #shop { display: grid; grid-template-columns: repeat(4, var(--stile)); grid-auto-rows: var(--stile); gap: 8px; }
 .slot { position: relative; width: var(--stile); height: var(--stile); border-radius: 12px; border: 2px dashed #2b3242; background: #171a22; }
 #keep-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }

@@ -11,7 +11,7 @@
   const Q = new URLSearchParams(location.search);
   const AUTO = Q.get('auto') === '1';
   const MUTE = AUTO || Q.get('mute') === '1';
-  const STOP = Q.has('stop') ? +Q.get('stop') : 0; // ?auto=1&stop=5 … 5ターン目で止める（画面の写真用）
+  const STOP = Q.has('stop') ? +Q.get('stop') : 0; // ?auto=1&stop=5 … 5ターン目で止める（画面の写真用）。&pick=1 … 止めたとき、つながる相手がいる棚の札を1つ選んだ画面にする
   const FAM_COLOR = { atk: 'var(--atk)', elem: 'var(--elem)', spec: 'var(--spec)', enh: 'var(--enh)', def: 'var(--def)', junk: 'var(--junk)' };
   const SRC_NAMES = { fire: '炎', chase: '追撃', consume: '毒消費', poison: '毒', shock: '感電', mirror: '反射' };
 
@@ -116,22 +116,80 @@
     drawLinks(d, s.board);
   }
   // つながりの線：となり合うマスのすきまに、短い太線を引く（計算と同じ links をそのまま描く）
+  function jointXY(a, b) { // マス a と b のすきまに引く短い線の両はし
+    const wrap = $('#board-wrap').getBoundingClientRect();
+    const ra = cellEl(a).getBoundingClientRect(), rb = cellEl(b).getBoundingClientRect();
+    const ax = ra.left + ra.width / 2 - wrap.left, ay = ra.top + ra.height / 2 - wrap.top;
+    const bx = rb.left + rb.width / 2 - wrap.left, by = rb.top + rb.height / 2 - wrap.top;
+    const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1;
+    const ux = (bx - ax) / len, uy = (by - ay) / len, L = Math.max(9, ra.width * 0.13);
+    return `x1="${(mx - ux * L).toFixed(1)}" y1="${(my - uy * L).toFixed(1)}" x2="${(mx + ux * L).toFixed(1)}" y2="${(my + uy * L).toFixed(1)}"`;
+  }
   function drawLinks(d, board) {
     const svg = $('#links'), wrap = $('#board-wrap').getBoundingClientRect();
     svg.setAttribute('viewBox', `0 0 ${wrap.width} ${wrap.height}`);
     let h = '';
     for (const [a, b] of d.links) {
-      const ra = cellEl(a).getBoundingClientRect(), rb = cellEl(b).getBoundingClientRect();
-      const ax = ra.left + ra.width / 2 - wrap.left, ay = ra.top + ra.height / 2 - wrap.top;
-      const bx = rb.left + rb.width / 2 - wrap.left, by = rb.top + rb.height / 2 - wrap.top;
-      const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1;
-      const ux = (bx - ax) / len, uy = (by - ay) / len, L = Math.max(9, ra.width * 0.13);
+      const xy = jointXY(a, b);
       const fa = R.B[board[a].type].fam, fb = R.B[board[b].type].fam;
       const col = FAM_COLOR[fa === 'atk' ? fb : (fb === 'atk' ? fa : (fa === 'enh' ? fa : fb))];
-      h += `<line x1="${(mx - ux * L).toFixed(1)}" y1="${(my - uy * L).toFixed(1)}" x2="${(mx + ux * L).toFixed(1)}" y2="${(my + uy * L).toFixed(1)}" stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/>`;
-      h += `<line x1="${(mx - ux * L).toFixed(1)}" y1="${(my - uy * L).toFixed(1)}" x2="${(mx + ux * L).toFixed(1)}" y2="${(my + uy * L).toFixed(1)}" stroke="${col}" stroke-width="6" stroke-linecap="round" data-link="${a}-${b}"/>`;
+      h += `<line ${xy} stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/>`;
+      h += `<line ${xy} stroke="${col}" stroke-width="6" stroke-linecap="round" data-link="${a}-${b}"/>`;
     }
-    svg.innerHTML = h;
+    svg.innerHTML = h + '<g id="links-pre"></g>'; // links-pre … 置く前の「ここに置くと つながる」点線
+  }
+
+  // ------------------------------------------------------------ つながる相手を見せる（置く前）
+  // 持っている札（選んだ札。なければ、マウスをのせた棚の札）について、
+  //   盤面の「相手になれる札」を光らせ、空きマスに「置いたら何本つながるか」を出す。
+  // 数は rules.js の linksIfPlaced / linksIfSwapped（画面の側で条件を書き直さない）。
+  function heldInfo() {
+    if (G.sel) return G.sel.src != null ? { src: G.sel.src, picked: true } : { cell: G.sel.cell, picked: true };
+    const h = G.hoverInfo; if (h && h.src != null) return { src: h.src, picked: false };
+    return null;
+  }
+  function markLinks() {
+    for (const t of document.querySelectorAll('.tile.lk-mate, .tile.lk-dim')) t.classList.remove('lk-mate', 'lk-dim');
+    for (const c of document.querySelectorAll('#board .cell.lk-good')) c.classList.remove('lk-good');
+    for (const m of document.querySelectorAll('#board .lk-spot')) m.remove();
+    const pre = $('#links-pre'); if (pre) pre.innerHTML = '';
+    const s = G.s; if (!s || G.busy || (s.phase !== 'place' && s.phase !== 'start')) return;
+    const held = heldInfo();
+    if (held) {
+      const type = held.src != null ? R.srcType(s, held.src) : (s.board[held.cell] && s.board[held.cell].type);
+      if (!type) return;
+      for (let i = 0; i < R.N; i++) {
+        if (held.cell === i) continue;
+        const b = s.board[i], c = cellEl(i);
+        if (b) {
+          const t = c.querySelector('.tile'); if (!t) continue;
+          if (R.isActive(b) && R.works(type, b.type)) t.classList.add('lk-mate'); else if (held.picked) t.classList.add('lk-dim');
+        } else {
+          const n = held.src != null ? R.linksIfPlaced(s.board, type, i).length : (R.canSwap(s, held.cell, i) ? R.linksIfSwapped(s.board, held.cell, i).length : 0);
+          if (n > 0) { c.classList.add('lk-good'); c.appendChild(el('div', 'lk-spot', `<b>${n}</b><span>つながる</span>`)); }
+        }
+      }
+    } else if (G.hoverInfo && G.hoverInfo.cell != null && R.isActive(s.board[G.hoverInfo.cell])) {
+      // 盤面の札にマウスをのせたとき：棚の中の「この札につながる札」を光らせる
+      const bt = s.board[G.hoverInfo.cell].type;
+      for (const t of document.querySelectorAll('#shop .tile, #keep .tile')) if (R.works(bt, t.dataset.type)) t.classList.add('lk-mate');
+    }
+  }
+  // 選んだ札を このマスに置いたら（入れかえたら）出る線を、点線で先に見せる
+  function drawPreLinks(cell) {
+    const pre = $('#links-pre'); if (!pre) return; pre.innerHTML = '';
+    const s = G.s; if (cell == null || !G.sel || G.busy || !s) return;
+    let ls = null;
+    if (G.sel.src != null) { if (R.placeKind(s, G.sel.src, cell)) ls = R.linksIfPlaced(s.board, R.srcType(s, G.sel.src), cell); }
+    else if (G.sel.cell != null && R.canSwap(s, G.sel.cell, cell)) ls = R.linksIfSwapped(s.board, G.sel.cell, cell);
+    if (!ls) return;
+    let h = '';
+    for (const j of ls) {
+      const xy = jointXY(cell, j);
+      h += `<line ${xy} stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/><line ${xy} stroke="#ffe27a" stroke-width="6" stroke-linecap="round" stroke-dasharray="1 9" data-prelink="${cell}-${j}"/>`;
+      const t = cellEl(j).querySelector('.tile'); if (t) t.classList.add('hl');
+    }
+    pre.innerHTML = h;
   }
 
   // ------------------------------------------------------------ 敵・予告・自分
@@ -173,15 +231,22 @@
   }
 
   // ------------------------------------------------------------ 棚・キープ
+  function fillSlot(slot, s, type, src) { // 棚・キープの1わく。数字の印は札の外（わくの右上）に出す
+    const t = tileEl(type, 1), n = R.bestLinks(s.board, type);
+    if (n === 0 && R.needsLink(type)) t.classList.add('lk-none');
+    if (G.sel && G.sel.src === src) t.classList.add('sel');
+    slot.appendChild(t);
+    if (n > 0) slot.appendChild(el('span', 'lk', `<i></i>${n}`));
+  }
   function renderShop() {
     const s = D(); const box = $('#shop'); box.innerHTML = '';
     for (let i = 0; i < R.SHOP; i++) {
       const slot = el('div', 'slot'); slot.dataset.shop = i;
-      if (s.shop[i]) { const t = tileEl(s.shop[i], 1); if (G.sel && G.sel.src === i) t.classList.add('sel'); slot.appendChild(t); }
+      if (s.shop[i]) fillSlot(slot, s, s.shop[i], i);
       box.appendChild(slot);
     }
     const k = $('#keep'); k.innerHTML = ''; k.className = 'slot';
-    if (s.keep) { const t = tileEl(s.keep, 1); if (G.sel && G.sel.src === 'keep') t.classList.add('sel'); k.appendChild(t); }
+    if (s.keep) fillSlot(k, s, s.keep, 'keep');
     if (!G.busy && G.sel && typeof G.sel.src === 'number' && s.phase === 'place') k.classList.add('can');
     $('#shop-box').classList.toggle('off', G.busy || s.phase === 'won' || s.phase === 'lost');
     $('#moves-label').textContent = s.phase === 'start' ? '最初の1個（手数なし）' : `のこり ${G.busy ? 0 : s.moves} 手`;
@@ -218,7 +283,7 @@
     if (G.busy) t = 'あなたの攻撃 → 敵の行動 → ターンの終わり';
     else if (s.phase === 'start') t = G.sel ? '置くマスを選ぼう' : '最初の攻撃ブロックを 棚から1つ選ぼう';
     else if (s.phase === 'place') {
-      if (G.sel && G.sel.src != null) t = '置くマスを選ぼう（同じ種類に重ねるとレベルアップ）';
+      if (G.sel && G.sel.src != null) t = '置くマスを選ぼう（数字＝つながる数。重ねるとLvアップ）';
       else if (G.sel && G.sel.cell != null) t = '入れかえる相手のマスを選ぼう（1手つかう）';
       else if (s.moves > 0) t = `棚のブロックを選んで盤面へ（あと ${s.moves} 手）`;
       else t = '「発動！」を押そう';
@@ -290,6 +355,7 @@
 
   function renderAll() {
     renderBoard(); renderEnemy(); renderIntent(); renderPlayer(); renderShop(); renderForecast(); renderButtons(); renderGuide(); renderDetail();
+    markLinks();
   }
 
   // ------------------------------------------------------------ 手（クリックでもドラッグでも、ここを通る）
@@ -447,6 +513,8 @@
       <li>同じ種類の上に重ねると<b>レベルアップ</b>（Lv3まで）。ちがう種類の上に置くと置きかえ。</li>
       <li>盤面のブロックを選んで別のマスを選ぶと<b>入れかえ</b>（1手）。棚の1個を<b>キープ</b>に取っておける（手数なし）。</li>
       <li>線が出ていない点線のブロックは、つながる相手がいなくて働いていない。</li>
+      <li><b>置く前に、つながる相手が見える。</b>棚のブロックの右上の数字は「いま置くと つながる数」（いちばん多いマスで）。点線の棚ブロックは、いまは相手がいない。</li>
+      <li>棚のブロックを選ぶと、<b>相手になれるブロックが黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
     </ul><h3>ブロック一覧（Lv1の数字）</h3>`;
     for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) {
       h += `<h3 style="color:${FAM_COLOR[f]}">${R.FAMS[f]}</h3><div class="cat">`;
@@ -520,7 +588,9 @@
       if (G.busy || !G.s) return;
       G.hoverInfo = info && (info.keep ? (G.s.keep ? { src: 'keep' } : null) : info.src != null ? (G.s.shop[info.src] ? info : null) : (G.s.board[info.cell] ? info : null));
       G.preview = previewFor(info);
-      renderForecast(); renderDetail(); highlightLinks(info && info.cell != null && G.s.board[info.cell] ? info.cell : null);
+      renderForecast(); renderDetail(); markLinks();
+      highlightLinks(!G.sel && info && info.cell != null && G.s.board[info.cell] ? info.cell : null);
+      drawPreLinks(info && info.cell != null ? info.cell : null);
     }
   });
   document.addEventListener('pointerup', e => {
@@ -541,7 +611,7 @@
   $('#speed').addEventListener('change', e => { G.speed = +e.target.value; });
   $('#vol').addEventListener('input', e => { vol = +e.target.value / 100; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#help').hidden = true; if (G.s && !G.busy) { G.sel = null; renderAll(); } } });
-  window.addEventListener('resize', () => { if (G.s) renderBoard(); });
+  window.addEventListener('resize', () => { if (G.s) { renderBoard(); markLinks(); } }); // 盤面を作り直すので、「つながる」表示も付け直す
   if (Q.has('speed')) { const o = [...$('#speed').options].find(x => +x.value === G.speed); if (o) $('#speed').value = o.value; }
 
   // ------------------------------------------------------------ 文字の重なり・はみ出しの検査（確認用）
@@ -591,11 +661,28 @@
     if (!G.s) return;
     if (G.s.phase === 'won' || G.s.phase === 'lost') { writeCheck(); return; }
     if (G.busy) { setTimeout(autoStep, 30); return; }
-    if (STOP && G.s.phase === 'place' && G.s.turn >= STOP) { sampleLayout(); CHECK.stopped = true; writeCheck(); return; }
+    if (STOP && G.s.phase === 'place' && G.s.turn >= STOP) {
+      if (Q.get('pick') === '1') { // 「つながる」表示の写真用：線の数がいちばん多い棚の札を選ぶ
+        let best = -1, bn = 0;
+        for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) { const n = R.bestLinks(G.s.board, G.s.shop[i]); if (n > bn) { bn = n; best = i; } }
+        if (best >= 0) { G.sel = { src: best }; renderAll(); }
+        CHECK.picked = best >= 0 ? { src: best, spots: document.querySelectorAll('#board .lk-spot').length, mates: document.querySelectorAll('#board .tile.lk-mate').length } : null;
+      }
+      sampleLayout(); CHECK.stopped = true; writeCheck(); return;
+    }
     // ?bot=random … でたらめに置くボット（負けの画面を確かめる用）
     const act = Bot.chooseAction(G.s, Q.get('bot') === 'random' ? { random: true, rand: autoRand, start: 'slash' } : { start: ['slash', 'shot', 'area'][G.seed % 3] });
     let ok = true;
-    if (act.type === 'place') ok = doPlace(act.src, act.cell); else if (act.type === 'swap') ok = doSwap(act.a, act.b); else ok = doEnd();
+    if (act.type === 'place') {
+      const want = R.linksIfPlaced(G.s.board, R.srcType(G.s, act.src), act.cell).slice().sort((a, b) => a - b), wasEmpty = !G.s.board[act.cell];
+      G.sel = { src: act.src }; renderAll(); // 人が棚の札を選んだときと同じ表示を出す
+      const spot = cellEl(act.cell).querySelector('.lk-spot b'), shown = spot ? +spot.textContent : 0;
+      if (wasEmpty && shown !== want.length) CHECK.mismatches.push(`つながる数の表示 ${shown} / 計算 ${want.length}（マス${act.cell}）`);
+      sampleLayout();
+      ok = doPlace(act.src, act.cell);
+      const got = ok ? G.derived.L[act.cell].slice().sort((a, b) => a - b) : want;
+      if (String(got) !== String(want)) CHECK.mismatches.push(`置く前の予告と置いた後のつながりがちがう（マス${act.cell}）`);
+    } else if (act.type === 'swap') ok = doSwap(act.a, act.b); else ok = doEnd();
     if (!ok) doEnd();
     setTimeout(autoStep, G.speed > 0 ? 250 : 0);
   }

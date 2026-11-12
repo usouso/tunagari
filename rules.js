@@ -410,6 +410,28 @@
     if (!canSwap(s, a, b)) return false;
     const t = s.board[a]; s.board[a] = s.board[b]; s.board[b] = t; s.moves--; return true;
   }
+  // ---- 置く前に見せる用（画面の「つながる」表示は、ここだけを使う。どれも derive をそのまま使う）
+  // type を cell に置いたら（同じ種類なら重ねたら）、どのマスとつながるか。
+  function linksIfPlaced(board, type, cell) {
+    const b = board.slice(), old = b[cell];
+    if (!(old && old.type === type)) b[cell] = mk(type); // 同じ種類に重ねるときは、いまのブロックのまま（レベルが上がるだけ）
+    return derive(b).L[cell].slice();
+  }
+  // 盤面の a のブロックを b と入れかえたら、動かしたブロックがどのマスとつながるか。
+  function linksIfSwapped(board, a, b) {
+    const c = board.slice(), t = c[a]; c[a] = c[b]; c[b] = t;
+    return c[b] ? derive(c).L[b].slice() : [];
+  }
+  // type を いま置くなら、いちばん多くて何本つながるか（置けるマス全部の中で）。
+  function bestLinks(board, type) {
+    let best = 0;
+    for (let i = 0; i < N; i++) {
+      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
+      best = Math.max(best, linksIfPlaced(board, type, i).length);
+    }
+    return best;
+  }
+
   // キープ：棚のブロックを1個とっておく（手数を使わない）
   function toKeep(s, idx) {
     if (s.phase !== 'place' || !s.shop[idx]) return false;
@@ -565,6 +587,7 @@
     B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
     needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt,
     newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
+    linksIfPlaced, linksIfSwapped, bestLinks,
     resolve, endTurn, forecast,
   };
 });

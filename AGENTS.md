@@ -5,6 +5,9 @@
 
 公開は本人が決めた（2026-11-12）。公開先は https://usouso.github.io/tunagari/ （公開ずみ。main への push が1〜2分後に公開版になる）。`docs/game-development/` は公開リポジトリに入れていない（このPCの中だけのコピー。元は `DocumentsGameDevelopment`）。
 
+## 独立レビューの頼まれ方（Codex へ）
+制作担当（Claude）が `node review.js` で呼ぶ。対象commitの隔離したコピーの中で、読むだけの設定で動く。やること・してはいけないこと・出す形は、そのとき渡される文に書いてある。ファイルは変えない。結果は制作担当が `reviews/` に保存する。
+
 ## Game development standard entry v1.2
 ゲーム作業の最初に [全ゲーム共通標準](docs/game-development/GAME-DEVELOPMENT-STANDARD.md) を読む。
 [独立レビュー手順](docs/game-development/REVIEW-PROCEDURE.md) と [引継ぎ書式](docs/game-development/HANDOFF-TEMPLATE.md) を使う。
