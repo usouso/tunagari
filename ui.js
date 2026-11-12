@@ -90,7 +90,7 @@
   }
   function cellEl(i) { return $('#board').children[i]; }
   function renderBoard() {
-    const s = D(); const d = R.derive(s.board); G.derived = d;
+    const s = D(); const d = R.derive(s.board, s.e); G.derived = d;
     const ord = {}; for (const a of d.atk) ord[a.cell] = a.order;
     const it = s.phase === 'place' ? s.intent : null;
     for (let i = 0; i < R.N; i++) {
@@ -165,14 +165,14 @@
       const type = held.src != null ? R.srcType(s, held.src) : (hb && hb.type);
       if (!type) return;
       // 光らせる相手は rules.js が決める（数字のマスに置くと、本当に つながる札）。封印中の札を選んだときは空になる
-      const mates = held.src != null ? R.linkMates(s.board, type) : R.swapMates(s.board, held.cell);
+      const mates = held.src != null ? R.linkMates(s.board, type, s.e) : R.swapMates(s.board, held.cell, s.e);
       for (let i = 0; i < R.N; i++) {
         if (held.cell === i) continue;
         const b = s.board[i], t = b && cellEl(i).querySelector('.tile'); if (!t) continue;
         if (mates.indexOf(i) >= 0) t.classList.add('lk-mate'); else if (held.picked) t.classList.add('lk-dim');
       }
       // 数字を出すマスは rules.js が決める（空き・がれき。満杯のときは置きかえ）。置けないマス（手数0など）には出さない
-      const spots = held.src != null ? R.linkSpots(s.board, type) : R.swapSpots(s.board, held.cell);
+      const spots = held.src != null ? R.linkSpots(s.board, type, s.e) : R.swapSpots(s.board, held.cell, s.e);
       for (const sp of spots) {
         if (held.src != null ? !R.placeKind(s, held.src, sp.cell) : !R.canSwap(s, held.cell, sp.cell)) continue;
         const c = cellEl(sp.cell); c.classList.add('lk-good');
@@ -182,7 +182,7 @@
     } else if (G.hoverInfo && G.hoverInfo.cell != null && R.isActive(s.board[G.hoverInfo.cell])) {
       // 盤面の札にマウスをのせたとき：棚の中の「この札につながる札」を光らせる
       const at = G.hoverInfo.cell;
-      for (const t of document.querySelectorAll('#shop .tile, #keep .tile')) if (R.linkMates(s.board, t.dataset.type).indexOf(at) >= 0) t.classList.add('lk-mate');
+      for (const t of document.querySelectorAll('#shop .tile, #keep .tile')) if (R.linkMates(s.board, t.dataset.type, s.e).indexOf(at) >= 0) t.classList.add('lk-mate');
     }
   }
   // 選んだ札を このマスに置いたら（入れかえたら）出る線を、点線で先に見せる
@@ -190,8 +190,8 @@
     const pre = $('#links-pre'); if (!pre) return; pre.innerHTML = '';
     const s = G.s; if (cell == null || !G.sel || G.busy || !s) return;
     let ls = null;
-    if (G.sel.src != null) { if (R.placeKind(s, G.sel.src, cell)) ls = R.linksIfPlaced(s.board, R.srcType(s, G.sel.src), cell); }
-    else if (G.sel.cell != null && R.canSwap(s, G.sel.cell, cell)) ls = R.linksIfSwapped(s.board, G.sel.cell, cell);
+    if (G.sel.src != null) { if (R.placeKind(s, G.sel.src, cell)) ls = R.linksIfPlaced(s.board, R.srcType(s, G.sel.src), cell, s.e); }
+    else if (G.sel.cell != null && R.canSwap(s, G.sel.cell, cell)) ls = R.linksIfSwapped(s.board, G.sel.cell, cell, s.e);
     if (!ls) return;
     let h = '';
     for (const j of ls) {
@@ -243,7 +243,7 @@
   // ------------------------------------------------------------ 棚・キープ
   function fillSlot(slot, s, type, src) { // 棚・キープの1わく。いま置いても働かない札は点線（盤面の「働いていない札」と同じ見た目）
     const t = tileEl(type, 1);
-    if (R.needsLink(type) && R.bestLinks(s.board, type) === 0) t.classList.add('lk-none');
+    if (R.needsLink(type) && R.bestLinks(s.board, type, s.e) === 0) t.classList.add('lk-none');
     if (G.sel && G.sel.src === src) t.classList.add('sel');
     slot.appendChild(t);
   }
@@ -323,7 +323,7 @@
       const pn = partnersOf(type);
       h += pn.length ? `<p class="sub">つながる相手：${pn.join(' / ')}</p>` : `<p class="sub">ひとりで働く（どこに置いてもよい）。</p>`;
     } else if (info && info.cell != null && s.board[info.cell]) {
-      const b = s.board[info.cell], d = G.derived || R.derive(s.board);
+      const b = s.board[info.cell], d = G.derived || R.derive(s.board, s.e);
       h += blockHead(b.type, b.lv) + `<p>${R.blockText(b.type, b.lv)}</p>`;
       if (b.sealed) h += `<p class="warn">封印中（あと${b.sealed}ターン働かない）。</p>`;
       else if (b.type !== 'rubble') {
@@ -340,7 +340,7 @@
       }
     } else {
       // 何も選んでいないとき：スキルの一覧（発動の順）
-      const d = G.derived || R.derive(s.board);
+      const d = G.derived || R.derive(s.board, s.e);
       if (!G.showSkills) {
         h += `<p class="sub">ブロックにマウスをのせると、説明が出る。</p><button class="btn" id="btn-skills">スキル一覧を見る</button>`;
         box.innerHTML = h; return;
@@ -681,20 +681,20 @@
       if (Q.get('pick') === '1') { // 「つながる」表示の写真用：線の数がいちばん多い棚の札を選ぶ
         let best = -1, bn = 0;
         for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) { // 空きマスに数字が出る札を先にえらぶ（写真で分かりやすいほう）
-          const sp = R.linkSpots(G.s.board, G.s.shop[i]), n = R.bestLinks(G.s.board, G.s.shop[i]) + (sp.some(x => !G.s.board[x.cell]) ? 100 : 0);
+          const sp = R.linkSpots(G.s.board, G.s.shop[i], G.s.e), n = R.bestLinks(G.s.board, G.s.shop[i], G.s.e) + (sp.some(x => !G.s.board[x.cell]) ? 100 : 0);
           if (n > bn) { bn = n; best = i; }
         }
         // 先に、盤面の札を選んだとき（入れかえ）の表示を確かめる
         const sortedN = a => a.slice().sort((x, y) => x - y);
-        const from = G.s.board.findIndex((b, i) => b && R.swapSpots(G.s.board, i).length > 0);
+        const from = G.s.board.findIndex((b, i) => b && R.swapSpots(G.s.board, i, G.s.e).length > 0);
         if (from >= 0) {
           G.sel = { cell: from }; renderAll();
-          const sp = R.swapSpots(G.s.board, from), bad = [];
+          const sp = R.swapSpots(G.s.board, from, G.s.e), bad = [];
           for (const x of sp) { const m = cellEl(x.cell).querySelector('.lk-spot b, .lk-pin'); if (!m || +m.textContent !== x.n) bad.push(x.cell); }
           const shownCells = [...document.querySelectorAll('#board .lk-spot, #board .lk-pin')].length;
           const glow = sortedN([...document.querySelectorAll('#board .tile.lk-mate')].map(t => +t.parentElement.dataset.cell));
           if (bad.length || shownCells !== sp.length) CHECK.mismatches.push(`入れかえの数字のマスが計算とちがう（マス${from}）`);
-          if (String(glow) !== String(R.swapMates(G.s.board, from))) CHECK.mismatches.push(`入れかえの光る相手が計算とちがう（マス${from}）`);
+          if (String(glow) !== String(R.swapMates(G.s.board, from, G.s.e))) CHECK.mismatches.push(`入れかえの光る相手が計算とちがう（マス${from}）`);
           CHECK.pickedSwap = { from, spots: sp.length, mates: glow.length };
           sampleLayout();
         }
@@ -708,7 +708,7 @@
     let ok = true;
     const sorted = a => a.slice().sort((x, y) => x - y);
     { // 盤面の線と点線の札を、いまの計算とくらべる（毎手）
-      const d = R.derive(G.s.board), key = p => Math.min(p[0], p[1]) + '-' + Math.max(p[0], p[1]);
+      const d = R.derive(G.s.board, G.s.e), key = p => Math.min(p[0], p[1]) + '-' + Math.max(p[0], p[1]);
       const dom = sel => [...document.querySelectorAll(sel)].map(l => { const p = (l.dataset.link || l.dataset.deadlink).split('-').map(Number); return key(p); }).sort().join(' ');
       const liveWant = d.liveLinks.map(key).sort().join(' '), deadWant = d.links.filter(p => d.LL[p[0]].indexOf(p[1]) < 0).map(key).sort().join(' ');
       if (dom('#links [data-link]') !== liveWant) CHECK.mismatches.push(`効いている線 [${dom('#links [data-link]')}] / 計算 [${liveWant}]`);
@@ -722,7 +722,7 @@
     const preLinks = cell => sorted([...document.querySelectorAll('#links-pre [data-prelink]')].map(l => +l.dataset.prelink.split('-')[1]));
     if (act.type === 'place') {
       const type = R.srcType(G.s, act.src), board = G.s.board;
-      const want = sorted(R.linksIfPlaced(board, type, act.cell)), spots = R.linkSpots(board, type);
+      const want = sorted(R.linksIfPlaced(board, type, act.cell, G.s.e)), spots = R.linkSpots(board, type, G.s.e);
       const exp = (spots.find(x => x.cell === act.cell) || { n: 0 }).n; // このマスに出るはずの数字（数字を出さないマスなら0）
       G.sel = { src: act.src }; renderAll(); // 人が棚の札を選んだときと同じ表示を出す
       // 盤面に出ている数字のマス全部が、計算（置けるマスだけ）と同じ
@@ -730,13 +730,13 @@
       if (shownAll() !== expAll) CHECK.mismatches.push(`数字のマス [${shownAll()}] / 計算 [${expAll}]（${type}）`);
       if (shownAt(act.cell) !== exp) CHECK.mismatches.push(`つながる数の表示 ${shownAt(act.cell)} / 計算 ${exp}（マス${act.cell}）`);
       // 光っている札は、ルールの答え（linkMates）と ぴったり同じ（足りないのも、余分なのも だめ）
-      if (String(glowing()) !== String(R.linkMates(board, type))) CHECK.mismatches.push(`光る相手 [${glowing()}] / 計算 [${R.linkMates(board, type)}]（${type}）`);
+      if (String(glowing()) !== String(R.linkMates(board, type, G.s.e))) CHECK.mismatches.push(`光る相手 [${glowing()}] / 計算 [${R.linkMates(board, type, G.s.e)}]（${type}）`);
       // マスにのせたときの点線は、置いた後のつながりと同じ
       drawPreLinks(act.cell);
       if (String(preLinks(act.cell)) !== String(want)) CHECK.mismatches.push(`点線 [${preLinks(act.cell)}] / 計算 [${want}]（マス${act.cell}）`);
       for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) {
         let max = 0;
-        for (let c = 0; c < R.N; c++) if (R.placeKind(G.s, i, c)) max = Math.max(max, R.linksIfPlaced(board, G.s.shop[i], c).length);
+        for (let c = 0; c < R.N; c++) if (R.placeKind(G.s, i, c)) max = Math.max(max, R.linksIfPlaced(board, G.s.shop[i], c, G.s.e).length);
         const dashed = !!$('#shop').children[i].querySelector('.tile.lk-none'), want0 = R.needsLink(G.s.shop[i]) && max === 0;
         if (dashed !== want0) CHECK.mismatches.push(`棚の点線 ${dashed} / 計算 ${want0}（${G.s.shop[i]}、置けるマスの最大 ${max}）`);
         CHECK.shopChecks = (CHECK.shopChecks || 0) + 1;
@@ -747,13 +747,13 @@
       const got = ok ? sorted(G.derived.LL[act.cell]) : want;
       if (String(got) !== String(want)) CHECK.mismatches.push(`置く前の予告と置いた後のつながりがちがう（マス${act.cell}）`);
     } else if (act.type === 'swap') {
-      const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b));
-      const exp = (R.swapSpots(G.s.board, act.a).find(x => x.cell === act.b) || { n: 0 }).n;
+      const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b, G.s.e));
+      const exp = (R.swapSpots(G.s.board, act.a, G.s.e).find(x => x.cell === act.b) || { n: 0 }).n;
       G.sel = { cell: act.a }; renderAll(); // 人が盤面の札を選んだときと同じ表示を出す
-      const expSw = R.swapSpots(G.s.board, act.a).filter(x => R.canSwap(G.s, act.a, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
+      const expSw = R.swapSpots(G.s.board, act.a, G.s.e).filter(x => R.canSwap(G.s, act.a, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
       if (shownAll() !== expSw) CHECK.mismatches.push(`入れかえの数字のマス [${shownAll()}] / 計算 [${expSw}]`);
       if (shownAt(act.b) !== exp) CHECK.mismatches.push(`入れかえの つながる数の表示 ${shownAt(act.b)} / 計算 ${exp}（マス${act.b}）`);
-      if (String(glowing()) !== String(R.swapMates(G.s.board, act.a))) CHECK.mismatches.push(`入れかえの 光る相手 [${glowing()}] / 計算 [${R.swapMates(G.s.board, act.a)}]`);
+      if (String(glowing()) !== String(R.swapMates(G.s.board, act.a, G.s.e))) CHECK.mismatches.push(`入れかえの 光る相手 [${glowing()}] / 計算 [${R.swapMates(G.s.board, act.a, G.s.e)}]`);
       drawPreLinks(act.b);
       if (G.s.board[act.a] && String(preLinks(act.b)) !== String(want)) CHECK.mismatches.push(`入れかえの点線 [${preLinks(act.b)}] / 計算 [${want}]（マス${act.b}）`);
       CHECK.swapChecks = (CHECK.swapChecks || 0) + 1;

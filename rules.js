@@ -106,7 +106,8 @@
 
   // ---------------------------------------------------------------- つながりの計算
   // 盤面から「いま何がどう働くか」を全部出す。resolve も画面もこれだけを見る。
-  function derive(board) {
+  // st … 敵のいまの状態（{ poison, fire }）。「いま効いているか」の印にだけ使う（戦いの計算には使わない）。なくてもよい。
+  function derive(board, st) {
     const L = []; const links = [];
     for (let i = 0; i < N; i++) L.push([]);
     for (let a = 0; a < N; a++) {
@@ -214,13 +215,17 @@
     const atkCells = d.atk.map(a => a.cell);
     // その属性が、まだ のっていない攻撃があるか（あれば、拡散が役に立つ）
     const spreadHelps = e => atkCells.some(a => L[a].indexOf(e) < 0);
+    // 敵にその状態が つく（ついている）か。持続強化は、ターンの終わりに毒・炎がへる量を小さくするので、
+    // 毒・炎が敵にあるなら、攻撃につながっていない毒・炎ブロックごしでも効いている。
+    const has = k => !!(st && st[k] > 0) || d.atk.some(a => a.elem[k] > 0);
+    const kept = j => (tp(j) === 'poison' || tp(j) === 'fire') && has(tp(j));
     // 1回目：ひとりで働くもの
-    for (let i = 0; i < N; i++) if (isActive(board[i])) { const t = tp(i); if (fm(i) === 'atk' || t === 'shield' || t === 'tough' || t === 'regen' || t === 'dodge') live[i] = true; }
+    for (let i = 0; i < N; i++) if (isActive(board[i])) { const t = tp(i); if (fm(i) === 'atk' || t === 'shield' || t === 'tough' || t === 'regen' || t === 'dodge' || t === 'charge') live[i] = true; } // 蓄積は、ひとりでも たまりがふえる
     // 2回目：攻撃に のるもの（属性・特殊・吸収）、盾がいる反射
     for (let i = 0; i < N; i++) if (isActive(board[i]) && !live[i]) {
       const t = tp(i), f = fm(i);
       if (f === 'spec' || t === 'leech') live[i] = near(i, j => fm(j) === 'atk');
-      else if (f === 'elem') live[i] = near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i));
+      else if (f === 'elem') live[i] = near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i)) || (kept(i) && near(i, j => tp(j) === 'sustain'));
       else if (t === 'mirror') live[i] = near(i, j => tp(j) === 'shield');
     }
     // 3回目：強化（効いている相手につながっているとき）
@@ -229,7 +234,7 @@
       if (t === 'amp') live[i] = near(i, j => live[j] && (fm(j) === 'atk' || fm(j) === 'elem' || (fm(j) === 'def' && tp(j) !== 'dodge')));
       else if (t === 'pierce') live[i] = near(i, j => fm(j) === 'atk' || (tp(j) === 'mirror' && live[j]));
       else if (t === 'spread') live[i] = near(i, j => fm(j) === 'elem' && spreadHelps(j));
-      else if (t === 'sustain') live[i] = near(i, j => tp(j) === 'shield' || ((tp(j) === 'poison' || tp(j) === 'fire') && live[j]));
+      else if (t === 'sustain') live[i] = near(i, j => tp(j) === 'shield' || kept(j));
       else if (t === 'haste') live[i] = near(i, j => fm(j) === 'atk' || tp(j) === 'dodge' || (tp(j) === 'chase' && live[j]));
       else if (t === 'convert') live[i] = near(i, j => fm(j) === 'atk');
     }
@@ -248,6 +253,7 @@
   function idleHint(type) {
     const f = B[type].fam;
     if (f === 'elem') return '攻撃ブロックにつなぐと働く（拡散でも とどく）。';
+    if (type === 'sustain') return '盾か、敵に ついている毒・炎のブロックにつなぐと働く。';
     if (f === 'spec' || type === 'leech' || type === 'convert') return '攻撃ブロックにつなぐと働く。';
     if (type === 'mirror') return '盾につなぐと働く。';
     if (type === 'spread') return '攻撃につながった属性に つなぐと働く（ほかの攻撃があるとき）。';
@@ -471,15 +477,15 @@
   }
   // ---- 置く前に見せる用（画面の「つながる」表示は、ここだけを使う。どれも derive をそのまま使う）
   // type を cell に置いたら（同じ種類なら重ねたら）、どのマスとつながるか。
-  function linksIfPlaced(board, type, cell) {
+  function linksIfPlaced(board, type, cell, st) {
     const b = board.slice(), old = b[cell];
     if (!(old && old.type === type)) b[cell] = mk(type); // 同じ種類に重ねるときは、いまのブロックのまま（レベルが上がるだけ）
-    return derive(b).LL[cell].slice(); // 数えるのは「効いている線」だけ
+    return derive(b, st).LL[cell].slice(); // 数えるのは「効いている線」だけ
   }
   // 盤面の a のブロックを b と入れかえたら、動かしたブロックがどのマスとつながるか。
-  function linksIfSwapped(board, a, b) {
+  function linksIfSwapped(board, a, b, st) {
     const c = board.slice(), t = c[a]; c[a] = c[b]; c[b] = t;
-    return c[b] ? derive(c).LL[b].slice() : [];
+    return c[b] ? derive(c, st).LL[b].slice() : [];
   }
   // 置く前に「数字を出すマス」は、ここ1か所で決める。
   //   ① 空きマスと、がれきのマスで、つながる所。
@@ -495,34 +501,34 @@
     return open.length ? open : rest;
   }
   // type を置くと つながるマスと、その数。[{ cell, n }]
-  function linkSpots(board, type) {
-    return pickSpots(board, i => linksIfPlaced(board, type, i).length,
+  function linkSpots(board, type, st) {
+    return pickSpots(board, i => linksIfPlaced(board, type, i, st).length,
       i => { const b = board[i]; return !!b && b.type === type && b.lv >= MAXLV; }); // Lv3 の同じ種類には、もう重ねられない
   }
   // 盤面の a のブロックを動かすと つながるマスと、その数。封印中のブロックは、動かしても つながらない。
-  function swapSpots(board, a) {
+  function swapSpots(board, a, st) {
     if (!isActive(board[a])) return [];
-    return pickSpots(board, i => linksIfSwapped(board, a, i).length, i => i === a);
+    return pickSpots(board, i => linksIfSwapped(board, a, i, st).length, i => i === a);
   }
   // 光らせる相手：数字のマスのどれかに置いた（動かした）とき、本当に つながる札のマス。
   // works の表だけで決めない（表では合っていても、盾のない反射と貫通のように、つながらない組がある）。
-  function linkMates(board, type) {
+  function linkMates(board, type, st) {
     const set = {};
-    for (const sp of linkSpots(board, type)) for (const j of linksIfPlaced(board, type, sp.cell)) set[j] = 1;
+    for (const sp of linkSpots(board, type, st)) for (const j of linksIfPlaced(board, type, sp.cell, st)) set[j] = 1;
     return Object.keys(set).map(Number).sort((x, y) => x - y);
   }
-  function swapMates(board, a) {
+  function swapMates(board, a, st) {
     const set = {};
-    for (const sp of swapSpots(board, a)) for (const j of linksIfSwapped(board, a, sp.cell)) if (j !== a) set[j] = 1;
+    for (const sp of swapSpots(board, a, st)) for (const j of linksIfSwapped(board, a, sp.cell, st)) if (j !== a) set[j] = 1;
     return Object.keys(set).map(Number).sort((x, y) => x - y);
   }
   // type を いま置くなら、いちばん多くて何本つながるか（置けるマス全部の中で。置きかえ・重ねもふくむ）。
   // 棚の札を「いまは相手がいない（点線）」にするかどうかに使う。
-  function bestLinks(board, type) {
+  function bestLinks(board, type, st) {
     let m = 0;
     for (let i = 0; i < N; i++) {
       const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // Lv3 の同じ種類には、もう重ねられない
-      m = Math.max(m, linksIfPlaced(board, type, i).length);
+      m = Math.max(m, linksIfPlaced(board, type, i, st).length);
     }
     return m;
   }

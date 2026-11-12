@@ -287,7 +287,9 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   eq('攻撃はひとりで働く', d.live[12], true);
   d = D({ 0: 'shield', 1: 'tough', 2: 'regen', 3: 'dodge', 10: 'leech', 20: 'mirror', 22: 'chase', 24: 'charge' });
   eq('盾・堅牢・再生・回避はひとりで働く', [d.live[0], d.live[1], d.live[2], d.live[3]], [true, true, true, true]);
-  eq('吸収・反射・追撃・蓄積は、相手がいないと働かない', [d.live[10], d.live[20], d.live[22], d.live[24]], [false, false, false, false]);
+  eq('吸収・反射・追撃は、相手がいないと働かない', [d.live[10], d.live[20], d.live[22]], [false, false, false]);
+  eq('蓄積は、ひとりでも働いている（たまりがふえる）', d.live[24], true);
+  { const c = setup({ 24: 'charge' }); R.resolve(c); ok('　ひとりの蓄積は、ターンのあと たまりがふえている', c.board[24].charge > 0); }
   d = D({ 12: 'chase', 13: 'haste' });
   eq('攻撃のない追撃＋加速：効いていない', [d.live[12], d.live[13], key(d.liveLinks)], [false, false, '']);
   d = D({ 11: 'slash', 12: 'chase', 13: 'haste' });
@@ -297,7 +299,16 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   d = D({ 12: 'shield', 13: 'sustain' });
   eq('盾＋持続強化：効いている', [d.live[13], key(d.liveLinks)], [true, '12-13']);
   d = D({ 12: 'poison', 13: 'sustain' });
-  eq('攻撃のない毒＋持続強化：効いていない', [d.live[13], key(d.liveLinks)], [false, '']);
+  eq('攻撃のない毒＋持続強化、敵に毒なし：効いていない', [d.live[12], d.live[13], key(d.liveLinks)], [false, false, '']);
+  d = R.derive(setup({ 12: 'poison', 13: 'sustain' }).board, { poison: 10, fire: 0 });
+  eq('攻撃のない毒＋持続強化、敵に毒あり：効いている（毒のへる量が小さくなる）', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '12-13']);
+  { const a = setup({ 12: 'poison', 13: 'sustain' }, [], { poison: 10 }), b = setup({ 12: 'poison' }, [], { poison: 10 }); R.resolve(a); R.resolve(b);
+    ok('　そのとき、ターンのあとの毒は 持続強化があるほうが多い', a.e.poison > b.e.poison, `${a.e.poison} / ${b.e.poison}`); }
+  d = R.derive(setup({ 0: 'slash', 1: 'poison', 12: 'poison', 13: 'sustain' }).board);
+  eq('別の毒が攻撃にのっている：はなれた毒＋持続強化も効いている', [d.live[12], d.live[13]], [true, true]);
+  d = R.derive(setup({ 12: 'fire', 13: 'sustain' }).board, { poison: 10, fire: 0 });
+  eq('敵にあるのは毒だけ：炎＋持続強化は効いていない', [d.live[12], d.live[13]], [false, false]);
+  eq('置く前：敵に毒があるとき、毒のとなりに持続強化 → 1本', R.linksIfPlaced(setup({ 12: 'poison' }).board, 'sustain', 13, { poison: 10, fire: 0 }), [12]);
   // 拡散：属性が まだ のっていない攻撃があるときだけ役に立つ
   d = D({ 11: 'slash', 12: 'poison', 13: 'spread' });
   eq('拡散：毒がもう全部の攻撃に のっている → 拡散は効いていない', [d.live[13], key(d.liveLinks)], [false, '11-12']);
@@ -315,15 +326,18 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   // 効いている・いないの印は、戦いの計算と合っている：効いていない札を全部どけても、ダメージは同じ（でたらめな盤面200個）
   let x = 99, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
   for (let t = 0; t < 200; t++) {
-    const mk1 = () => { const s = setup({}, [atk(12, 2)]); return s; };
+    const pre = { poison: rnd() < 0.5 ? (rnd() * 12) | 0 : 0, fire: rnd() < 0.3 ? (rnd() * 4) | 0 : 0, ice: (rnd() * 6) | 0, shock: (rnd() * 6) | 0 };
+    const mk1 = () => { const s = setup({}, [atk(12, 2)], pre); s.p.shield = 3; return s; };
     const a = mk1(), fill = 0.2 + rnd() * 0.6;
     for (let i = 0; i < R.N; i++) if (rnd() < fill) { const k = R.mk(R.TYPES[(rnd() * R.TYPES.length) | 0]); k.lv = 1 + ((rnd() * 3) | 0); a.board[i] = k; }
-    const b = mk1(); const dv = R.derive(a.board);
+    const b = mk1(); const dv = R.derive(a.board, a.e);
     for (let i = 0; i < R.N; i++) b.board[i] = a.board[i] && dv.live[i] ? JSON.parse(JSON.stringify(a.board[i])) : null;
     R.resolve(a); R.resolve(b);
-    if (a.stats.total !== b.stats.total || a.stats.taken !== b.stats.taken || a.e.hp !== b.e.hp || a.p.hp !== b.p.hp) bad++;
+    const after = z => JSON.stringify([z.stats.total, z.stats.taken, z.e.hp, z.p.hp, z.e.poison, z.e.fire, z.e.ice, z.e.shock, z.e.guard, z.e.frozen, z.p.shield, z.p.curse, z.p.dodgeCd,
+      z.board.map((c, i) => (c && dv.live[i] ? c.charge : 0))]);
+    if (after(a) !== after(b)) bad++;
   }
-  eq('効いていない札を全部どけても、1ターンの結果は同じ（でたらめな盤面200個）', bad, 0);
+  eq('効いていない札を全部どけても、1ターンの結果と、ターンのあとの状態（敵の毒・炎など、シールド、たまり）は同じ（でたらめな盤面200個、敵の状態つき）', bad, 0);
 }
 // 反射は、盾とつながっているときだけ働く。盾がないとき、貫通との線は出ない
 {
