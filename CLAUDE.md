@@ -16,10 +16,10 @@
 - ルールを変えたら `node tests.js` と `node check.js` を通す。数字を変えたら `node bot.js` の表も見る。
 - 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `attackLines` / `intentLines` を使う）。
 - 演出用の CSS の class は `fx-` で始める。
-- 公開：2026-11-12 に本人が「GitHub Pages で公開する」と決めた。予定の公開先は https://usouso.github.io/tsunagari/ （リポジトリ usouso/tsunagari、branch は main）。**もう出ているかどうかは REPORT.md の8章で確かめる。** 出たあとは、main への push が1〜2分後に公開版になる。
+- 公開：2026-11-12 に本人が「GitHub Pages で公開する」と決めた。予定の公開先は https://usouso.github.io/tunagari/ （リポジトリ usouso/tunagari、branch は main）。**もう出ているかどうかは REPORT.md の8章で確かめる。** 出たあとは、main への push が1〜2分後に公開版になる。
 - merge・課金・新規ログイン・アクセスやネットワークの拡大はしない（ユーザー全体の CLAUDE.md のとおり）。ほかのゲームの公開もしない。
 - `docs/game-development/` は公開リポジトリに入れていない（`.gitignore`）。このPCの中だけにあるコピーで、元は `DocumentsGameDevelopment`。
-- 独立レビューの担当は Codex（本人の指定）。dot は統括で、レビューはしない。
+- 独立レビューの担当は Codex（本人の指定）。dot は 2026-11-12 から使えない（本人がプランを変えたため）。下の入口の「dot が…指定する」は「本人が指定する」と読みかえる。
 
 ## Game development standard entry v1.2
 ゲーム作業の最初に [全ゲーム共通標準](docs/game-development/GAME-DEVELOPMENT-STANDARD.md) を読む。
