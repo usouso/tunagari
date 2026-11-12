@@ -196,6 +196,34 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   eq('入れかえる前：毒を遠くへ → つながらない', R.linksIfSwapped(sw, 0, 24), []);
   eq('入れかえる前：毒と斬撃を入れかえると、はなれる', R.linksIfSwapped(sw, 0, 12), []);
 }
+// 数字を出すマス（linkSpots / swapSpots）：空き・がれき。満杯のときは置きかえ
+{
+  const cells = a => a.map(x => x.cell).sort((x, y) => x - y);
+  eq('数字のマス：空きマスだけ（札のあるマスは出さない）', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield' }).board, 'poison')), [7, 11, 17]);
+  eq('数字のマス：がれきのマスは出す', cells(R.linkSpots(setup({ 12: 'slash', 13: 'rubble' }).board, 'poison')), [7, 11, 13, 17]);
+  const full = {}; for (let i = 0; i < R.N; i++) full[i] = 'shield'; full[12] = 'slash';
+  eq('数字のマス：満杯のときは、置きかえで つながるマスを出す', cells(R.linkSpots(setup(full).board, 'poison')), [7, 11, 13, 17]);
+  eq('満杯でも、いちばん多い数が出る', R.bestLinks(setup(full).board, 'poison'), 1);
+  const fullRub = Object.assign({}, full, { 13: 'rubble' });
+  eq('数字のマス：ほかが満杯で がれきが1つ → がれきのマスだけ', R.linkSpots(setup(fullRub).board, 'poison'), [{ cell: 13, n: 1 }]);
+  const full3 = Object.assign({}, full, { 13: 'poison3' });
+  ok('数字のマス：満杯で、Lv3の同じ種類のマスは出さない', cells(R.linkSpots(setup(full3).board, 'poison')).indexOf(13) < 0);
+  eq('入れかえの数字のマス', cells(R.swapSpots(setup({ 12: 'slash', 0: 'poison' }).board, 0)), [7, 11, 13, 17]);
+  const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
+  eq('入れかえの数字のマス：封印中の札は出さない', R.swapSpots(sealed, 0), []);
+}
+// 反射は、盾とつながっているときだけ働く。盾がないとき、貫通との線は出ない
+{
+  const a = R.derive(setup({ 12: 'pierce', 13: 'mirror' }).board);
+  eq('反射＋貫通だけ → 線なし', a.links, []);
+  eq('反射＋貫通だけ → 反射は0', a.reflect, 0);
+  eq('置く前：反射を貫通のとなりに → つながらない', R.linksIfPlaced(setup({ 12: 'pierce' }).board, 'mirror', 13), []);
+  const b = R.derive(setup({ 12: 'pierce', 13: 'mirror', 14: 'shield' }).board);
+  eq('反射＋盾＋貫通 → 反射は両方とつながる', b.L[13].slice().sort((x, y) => x - y), [12, 14]);
+  ok('反射＋盾＋貫通 → 反射が働き、装甲を無視する', b.reflect > 0 && b.reflectPierce === true);
+  const c = R.derive(setup({ 13: 'mirror', 14: 'shield' }).board);
+  eq('反射＋盾 → つながる', c.L[13], [14]);
+}
 // 画面に出す線（links）と、計算に使うつながりは同じもの
 { const s = setup({ 12: 'area', 18: 'amp', 13: 'poison', 14: 'sustain', 7: 'haste', 2: 'dodge', 0: 'shield', 1: 'mirror' }); const d = R.derive(s.board);
   const key = l => l.map(p => p.join('-')).sort().join(' ');

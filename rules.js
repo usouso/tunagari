@@ -121,6 +121,15 @@
         L[a].push(b); L[b].push(a); links.push([a, b]);
       }
     }
+    // 反射は「盾とつながっているとき」だけ働く。盾がないときは、貫通との線を出さない（線が出ているのに働かない、をなくす）
+    for (let i = 0; i < N; i++) {
+      const b = board[i]; if (!isActive(b) || b.type !== 'mirror') continue;
+      if (L[i].some(j => board[j].type === 'shield')) continue;
+      for (const j of L[i].filter(k => board[k].type === 'pierce')) {
+        L[i].splice(L[i].indexOf(j), 1); L[j].splice(L[j].indexOf(i), 1);
+        const at = links.findIndex(p => (p[0] === i && p[1] === j) || (p[0] === j && p[1] === i)); if (at >= 0) links.splice(at, 1);
+      }
+    }
     const val = i => B[board[i].type].v[board[i].lv - 1];
     const ampOf = i => { let m = 1; const l = L[i]; for (let k = 0; k < l.length; k++) if (board[l[k]].type === 'amp') m += val(l[k]) / 100; return m; };
 
@@ -422,15 +431,30 @@
     const c = board.slice(), t = c[a]; c[a] = c[b]; c[b] = t;
     return c[b] ? derive(c).L[b].slice() : [];
   }
-  // type を いま置くなら、いちばん多くて何本つながるか（置けるマス全部の中で）。
-  function bestLinks(board, type) {
-    let best = 0;
-    for (let i = 0; i < N; i++) {
-      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
-      best = Math.max(best, linksIfPlaced(board, type, i).length);
-    }
-    return best;
+  // 置く前に「数字を出すマス」は、ここ1か所で決める（棚の数字も、盤面の数字も、ここから出す）。
+  //   空きマスと、がれきのマス。空きも がれきも ないとき（満杯）は、全部のマス（置きかえ・重ね）。
+  function spotCells(board) {
+    const open = [], all = [];
+    for (let i = 0; i < N; i++) { all.push(i); if (!board[i] || board[i].type === 'rubble') open.push(i); }
+    return open.length ? open : all;
   }
+  // type を置くと つながるマスと、その数。[{ cell, n }]
+  function linkSpots(board, type) {
+    const out = [];
+    for (const i of spotCells(board)) {
+      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
+      const n = linksIfPlaced(board, type, i).length; if (n > 0) out.push({ cell: i, n });
+    }
+    return out;
+  }
+  // 盤面の a のブロックを動かすと つながるマスと、その数。封印中のブロックは、動かしても つながらない。
+  function swapSpots(board, a) {
+    const out = []; if (!isActive(board[a])) return out;
+    for (const i of spotCells(board)) { if (i === a) continue; const n = linksIfSwapped(board, a, i).length; if (n > 0) out.push({ cell: i, n }); }
+    return out;
+  }
+  // type を いま置くなら、いちばん多くて何本つながるか（linkSpots の中で）。
+  function bestLinks(board, type) { let m = 0; for (const x of linkSpots(board, type)) m = Math.max(m, x.n); return m; }
 
   // キープ：棚のブロックを1個とっておく（手数を使わない）
   function toKeep(s, idx) {
@@ -587,7 +611,7 @@
     B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
     needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt,
     newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
-    linksIfPlaced, linksIfSwapped, bestLinks,
+    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, bestLinks,
     resolve, endTurn, forecast,
   };
 });

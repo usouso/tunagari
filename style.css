@@ -151,6 +151,7 @@ button, select, input { font: inherit; color: inherit; }
 .lk i::before { left: 0; } .lk i::after { right: 0; }
 .slot > .lk { position: absolute; top: -7px; right: -7px; z-index: 3; box-shadow: 0 0 0 2px #0d0f14; pointer-events: none; }
 .cell.lk-good { border: 2px solid #ffe27a; background: #2a2718; }
+.cell > .lk-pin { position: absolute; bottom: -7px; right: -7px; z-index: 3; box-shadow: 0 0 0 2px #0d0f14; pointer-events: none; }
 .lk-spot { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; color: #ffe27a; }
 .lk-spot b { font-size: calc(var(--cell) * .3); line-height: 1; }
 .lk-spot span { font-size: 12px; line-height: 1.2; white-space: nowrap; }

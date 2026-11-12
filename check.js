@@ -81,6 +81,7 @@ async function main() {
       if (!c.title && !c.stop && !(k.done && k.result && (k.result.phase === 'won' || k.result.phase === 'lost'))) bad.push('決着まで行かなかった');
       if (c.stop && !k.stopped && !k.done) bad.push('止まる所まで行かなかった');
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
+      if (!c.title && !c.stop && !c.lose && !(k.zeroMoveChecks > 0)) bad.push('手数0のときの「つながる」表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.mates > 0 && k.picked.spots > 0)) bad.push('つながる相手の表示が出ていない（光る札・数字のマスがない）');
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;

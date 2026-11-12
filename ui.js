@@ -151,23 +151,27 @@
   function markLinks() {
     for (const t of document.querySelectorAll('.tile.lk-mate, .tile.lk-dim')) t.classList.remove('lk-mate', 'lk-dim');
     for (const c of document.querySelectorAll('#board .cell.lk-good')) c.classList.remove('lk-good');
-    for (const m of document.querySelectorAll('#board .lk-spot')) m.remove();
+    for (const m of document.querySelectorAll('#board .lk-spot, #board .lk-pin')) m.remove();
     const pre = $('#links-pre'); if (pre) pre.innerHTML = '';
     const s = G.s; if (!s || G.busy || (s.phase !== 'place' && s.phase !== 'start')) return;
     const held = heldInfo();
     if (held) {
-      const type = held.src != null ? R.srcType(s, held.src) : (s.board[held.cell] && s.board[held.cell].type);
+      const hb = held.cell != null ? s.board[held.cell] : null;
+      const type = held.src != null ? R.srcType(s, held.src) : (hb && hb.type);
       if (!type) return;
+      const live = held.src != null || R.isActive(hb); // 封印中の札を選んだときは、相手を光らせない（いまは つながらない）
       for (let i = 0; i < R.N; i++) {
         if (held.cell === i) continue;
-        const b = s.board[i], c = cellEl(i);
-        if (b) {
-          const t = c.querySelector('.tile'); if (!t) continue;
-          if (R.isActive(b) && R.works(type, b.type)) t.classList.add('lk-mate'); else if (held.picked) t.classList.add('lk-dim');
-        } else {
-          const n = held.src != null ? R.linksIfPlaced(s.board, type, i).length : (R.canSwap(s, held.cell, i) ? R.linksIfSwapped(s.board, held.cell, i).length : 0);
-          if (n > 0) { c.classList.add('lk-good'); c.appendChild(el('div', 'lk-spot', `<b>${n}</b><span>つながる</span>`)); }
-        }
+        const b = s.board[i], t = b && cellEl(i).querySelector('.tile'); if (!t) continue;
+        if (live && R.isActive(b) && R.works(type, b.type)) t.classList.add('lk-mate'); else if (held.picked) t.classList.add('lk-dim');
+      }
+      // 数字を出すマスは rules.js が決める（空き・がれき。満杯のときは置きかえ）。置けないマス（手数0など）には出さない
+      const spots = held.src != null ? R.linkSpots(s.board, type) : R.swapSpots(s.board, held.cell);
+      for (const sp of spots) {
+        if (held.src != null ? !R.placeKind(s, held.src, sp.cell) : !R.canSwap(s, held.cell, sp.cell)) continue;
+        const c = cellEl(sp.cell); c.classList.add('lk-good');
+        if (s.board[sp.cell]) c.appendChild(el('span', 'lk lk-pin', `<i></i>${sp.n}`)); // 札があるマス（がれき・満杯のときの置きかえ）は小さい印
+        else c.appendChild(el('div', 'lk-spot', `<b>${sp.n}</b><span>つながる</span>`));
       }
     } else if (G.hoverInfo && G.hoverInfo.cell != null && R.isActive(s.board[G.hoverInfo.cell])) {
       // 盤面の札にマウスをのせたとき：棚の中の「この札につながる札」を光らせる
@@ -673,16 +677,44 @@
     // ?bot=random … でたらめに置くボット（負けの画面を確かめる用）
     const act = Bot.chooseAction(G.s, Q.get('bot') === 'random' ? { random: true, rand: autoRand, start: 'slash' } : { start: ['slash', 'shot', 'area'][G.seed % 3] });
     let ok = true;
+    const sorted = a => a.slice().sort((x, y) => x - y);
+    const shownAt = cell => { const m = cellEl(cell).querySelector('.lk-spot b, .lk-pin'); return m ? +m.textContent : 0; };
     if (act.type === 'place') {
-      const want = R.linksIfPlaced(G.s.board, R.srcType(G.s, act.src), act.cell).slice().sort((a, b) => a - b), wasEmpty = !G.s.board[act.cell];
+      const type = R.srcType(G.s, act.src), board = G.s.board;
+      const want = sorted(R.linksIfPlaced(board, type, act.cell)), spots = R.linkSpots(board, type);
+      const exp = (spots.find(x => x.cell === act.cell) || { n: 0 }).n; // このマスに出るはずの数字（数字を出さないマスなら0）
       G.sel = { src: act.src }; renderAll(); // 人が棚の札を選んだときと同じ表示を出す
-      const spot = cellEl(act.cell).querySelector('.lk-spot b'), shown = spot ? +spot.textContent : 0;
-      if (wasEmpty && shown !== want.length) CHECK.mismatches.push(`つながる数の表示 ${shown} / 計算 ${want.length}（マス${act.cell}）`);
+      if (shownAt(act.cell) !== exp) CHECK.mismatches.push(`つながる数の表示 ${shownAt(act.cell)} / 計算 ${exp}（マス${act.cell}）`);
+      // 数字のマスに置いたときの相手は、全部 光っていること
+      for (const sp of spots) for (const j of R.linksIfPlaced(board, type, sp.cell)) {
+        const t = cellEl(j).querySelector('.tile');
+        if (!t || !t.classList.contains('lk-mate')) CHECK.mismatches.push(`数字のマス${sp.cell}の相手（マス${j}）が光っていない`);
+      }
       sampleLayout();
       ok = doPlace(act.src, act.cell);
-      const got = ok ? G.derived.L[act.cell].slice().sort((a, b) => a - b) : want;
+      const got = ok ? sorted(G.derived.L[act.cell]) : want;
       if (String(got) !== String(want)) CHECK.mismatches.push(`置く前の予告と置いた後のつながりがちがう（マス${act.cell}）`);
-    } else if (act.type === 'swap') ok = doSwap(act.a, act.b); else ok = doEnd();
+    } else if (act.type === 'swap') {
+      const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b));
+      const exp = (R.swapSpots(G.s.board, act.a).find(x => x.cell === act.b) || { n: 0 }).n;
+      G.sel = { cell: act.a }; renderAll(); // 人が盤面の札を選んだときと同じ表示を出す
+      if (shownAt(act.b) !== exp) CHECK.mismatches.push(`入れかえの つながる数の表示 ${shownAt(act.b)} / 計算 ${exp}（マス${act.b}）`);
+      sampleLayout();
+      ok = doSwap(act.a, act.b);
+      const got = ok && G.s.board[act.b] ? sorted(G.derived.L[act.b]) : want;
+      if (String(got) !== String(want)) CHECK.mismatches.push(`入れかえる前の予告と、入れかえた後のつながりがちがう（マス${act.b}）`);
+    } else {
+      // 手数が0のとき：棚の札を選んでも、置けないマスに数字が出ないこと
+      const i = G.s.shop.findIndex(x => x);
+      if (G.s.phase === 'place' && G.s.moves === 0 && i >= 0) {
+        G.sel = { src: i }; renderAll();
+        const n = document.querySelectorAll('#board .lk-spot, #board .lk-pin').length;
+        if (n) CHECK.mismatches.push(`手数0なのに「つながる」数字が${n}マスに出ている`);
+        CHECK.zeroMoveChecks = (CHECK.zeroMoveChecks || 0) + 1;
+        G.sel = null; renderAll();
+      }
+      ok = doEnd();
+    }
     if (!ok) doEnd();
     setTimeout(autoStep, G.speed > 0 ? 250 : 0);
   }
