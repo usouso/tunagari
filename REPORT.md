@@ -1,6 +1,6 @@
 # ツナガリ・ビルド（試作1） REPORT
 
-2026-11-12 / 制作: Claude（Claude Code）/ 対象commit: `d71d550`（この REPORT 自体はその次のコミット）
+2026-11-12 / 制作: Claude（Claude Code）/ 対象commit: `4d07c51`（この REPORT 自体はその次のコミット）
 
 ## 0. ひとことで
 - 遊べる試作ができた。敵5体、ブロック24種類、盤面は **5×5**（6×6から変えた。理由は3章）。
@@ -157,15 +157,15 @@
 - 独立レビュー（別のAIによるコードレビューと再テスト）。
 
 ## 8. 工程ごとの状態（共通標準の書式）
-- task ID：未発行（dot の台帳に未登録）／ repo：ローカルのみ（リモートなし）／ branch：master ／ 対象commit：`d71d550` ／ 制作：Claude ／ 独立担当：**未確保** ／ 標準の読了：v1.2、`C:/Users/nonus/Documents/GameDevelopment/GAME-DEVELOPMENT-STANDARD.md`（と HANDOFF-TEMPLATE.md、REVIEW-PROCEDURE.md）、2026-11-12 21時ごろ（JST）に Claude Code が読了。共有台帳（TEAM-REGISTRY.md など）へは**書いていない**（質問3）。
+- task ID：未発行（dot の台帳に未登録）／ repo：ローカルのみ（リモートなし）／ branch：master ／ 対象commit：`4d07c51` ／ 制作：Claude ／ 独立担当：**未確保** ／ 標準の読了：v1.2、`C:/Users/nonus/Documents/GameDevelopment/GAME-DEVELOPMENT-STANDARD.md`（と HANDOFF-TEMPLATE.md、REVIEW-PROCEDURE.md）、2026-11-12 21時ごろ（JST）に Claude Code が読了。共有台帳（TEAM-REGISTRY.md など）へは**書いていない**（質問3）。
 
 | 工程 | 状態 | 担当 | commit | 実測・証拠 |
 |---|---|---|---|---|
 | Claude→Codex呼出し | 未実施 | – | – | 独立担当が未確保 |
 | コードレビュー | 未実施 | – | – | 制作担当の自己確認のみ（合格に数えない） |
-| テスト実行 | 合格 | Claude | d71d550 | `node tests.js` 834/0、終了コード0（`evidence/tests.txt`） |
-| 実ゲーム起動 | 合格 | Claude | d71d550 | 127.0.0.1:8437 と file:// の両方で起動 |
-| 画面確認 | 合格（機械検査の範囲） | Claude | d71d550 | `node check.js` 46/46、終了コード0（`evidence/check-screen.txt`、`screenshots/` 36枚） |
+| テスト実行 | 合格 | Claude | 4d07c51 | `node tests.js` 834/0、終了コード0（`evidence/tests.txt`） |
+| 実ゲーム起動 | 合格 | Claude | 4d07c51 | 127.0.0.1:8437 と file:// の両方で起動 |
+| 画面確認 | 合格（機械検査の範囲） | Claude | 4d07c51 | `node check.js` 46/46、終了コード0（`evidence/check-screen.txt`、`screenshots/` 36枚） |
 | 通常入力・進行 | 合格（1周、置き場所はボット任せ） | Claude | 197e086 の次の作業ツリー | 4-3 のとおり。写真の保存なし |
 | 結果受渡し | 未実施 | – | – | この REPORT が受渡し文書。受信確認なし |
 | 修正 | 未実施 | – | – | – |

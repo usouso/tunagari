@@ -1,7 +1,9 @@
 # ツナガリ・ビルド（試作）
 
 作業の入口は [CLAUDE.md](CLAUDE.md)（ファイルの役割ときまり）と [REPORT.md](REPORT.md)（設計・確かめた結果・質問）。
-独立レビューをする担当は、制作担当（Claude）と別の AI であること。`node tests.js`・`node check.js` の合格だけで全体の合格にしない（通常入力の通し確認は別工程）。
+制作は Claude、独立レビューは Codex（2026-11-12 本人の指定。dot は統括で、レビューはしない）。`node tests.js`・`node check.js` の合格だけで全体の合格にしない（通常入力の通し確認は別工程）。
+
+公開先は https://usouso.github.io/tsunagari/ （main への push が公開版になる）。`docs/game-development/` は公開リポジトリに入れていない（このPCの中だけのコピー。元は `DocumentsGameDevelopment`）。
 
 ## Game development standard entry v1.2
 ゲーム作業の最初に [全ゲーム共通標準](docs/game-development/GAME-DEVELOPMENT-STANDARD.md) を読む。
