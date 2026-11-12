@@ -71,6 +71,7 @@ async function main() {
   // node check.js only=pc1024 … 名前にその文字が入る場面だけ回す（直しの確かめ用。全体の合格には数えない）
   const only = (process.argv.find(a => a.startsWith('only=')) || '').slice(5);
   if (only) { const keep = cases.filter(c => c.name.indexOf(only) >= 0); cases.length = 0; cases.push(...keep); }
+  if (!cases.length) { console.log(`✗ only=${only} に合う場面が1つもない（何も検査していないので、失敗にする）`); server.close(); process.exit(1); }
   let fail = 0, n = 0; const rows = []; const total = { place: 0, swap: 0, zero: 0, shop: 0, line: 0, dead: 0 };
   for (const c of cases) {
     n++;

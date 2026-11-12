@@ -98,7 +98,7 @@
       if (b) {
         const idle = R.isActive(b) && !d.live[i]; // 効いていない札は点線（つながっていても、相手が働いていなければ点線）
         let badge = '';
-        if (b.type === 'charge') badge = `+${b.charge}`; // たまりの数（のせると「たまり N」と出る）
+        if (b.type === 'charge' && b.charge > 0) badge = `+${b.charge}`; // たまりの数（のせると「たまり N」と出る）
         if (b.type === 'dodge' && s.p.dodgeCd > 0) badge = `休み${s.p.dodgeCd}`;
         const t = tileEl(b.type, b.lv, { badge: b.sealed ? '' : badge, sealed: b.sealed, idle });
         c.appendChild(t);
