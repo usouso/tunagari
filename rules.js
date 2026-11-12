@@ -432,34 +432,28 @@
     return c[b] ? derive(c).L[b].slice() : [];
   }
   // 置く前に「数字を出すマス」は、ここ1か所で決める（棚の数字も、盤面の数字も、ここから出す）。
-  //   まず「空きマスと、がれきのマス」の中で つながるマス。
-  //   そこに1つもないとき（満杯のとき、空きはあるが どこにも つながらないとき）は、全部のマスから（置きかえ・重ね）。
-  //   いつも全部のマスに出さないのは、札の上が数字だらけになるのをさけるため。
-  function openCells(board) { const open = []; for (let i = 0; i < N; i++) if (!board[i] || board[i].type === 'rubble') open.push(i); return open; }
-  const ALL_CELLS = []; for (let i = 0; i < N; i++) ALL_CELLS.push(i);
+  //   ① 空きマスと、がれきのマスで、つながる所は全部。
+  //   ② 札のあるマス（置きかえ・重ね）は、①のいちばん多い数より多く つながる所だけ。
+  //   こうすると、いちばん多い数（棚の数字）は「置けるマス全部の中の最大」と同じになり、
+  //   しかも札の上が数字だらけにならない（置きかえた方が得な所だけ出る）。
+  function pickSpots(board, countAt, skip) {
+    const open = [], rest = []; let bestOpen = 0;
+    for (let i = 0; i < N; i++) {
+      if (skip(i)) continue;
+      const n = countAt(i); if (n <= 0) continue;
+      if (!board[i] || board[i].type === 'rubble') { open.push({ cell: i, n }); if (n > bestOpen) bestOpen = n; } else rest.push({ cell: i, n });
+    }
+    return open.concat(rest.filter(x => x.n > bestOpen)).sort((x, y) => x.cell - y.cell);
+  }
   // type を置くと つながるマスと、その数。[{ cell, n }]
   function linkSpots(board, type) {
-    const scan = cells => {
-      const out = [];
-      for (const i of cells) {
-        const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // もう重ねられない
-        const n = linksIfPlaced(board, type, i).length; if (n > 0) out.push({ cell: i, n });
-      }
-      return out;
-    };
-    const first = scan(openCells(board));
-    return first.length ? first : scan(ALL_CELLS);
+    return pickSpots(board, i => linksIfPlaced(board, type, i).length,
+      i => { const b = board[i]; return !!b && b.type === type && b.lv >= MAXLV; }); // Lv3 の同じ種類には、もう重ねられない
   }
   // 盤面の a のブロックを動かすと つながるマスと、その数。封印中のブロックは、動かしても つながらない。
   function swapSpots(board, a) {
     if (!isActive(board[a])) return [];
-    const scan = cells => {
-      const out = [];
-      for (const i of cells) { if (i === a) continue; const n = linksIfSwapped(board, a, i).length; if (n > 0) out.push({ cell: i, n }); }
-      return out;
-    };
-    const first = scan(openCells(board));
-    return first.length ? first : scan(ALL_CELLS);
+    return pickSpots(board, i => linksIfSwapped(board, a, i).length, i => i === a);
   }
   // 光らせる相手：数字のマスのどれかに置いた（動かした）とき、本当に つながる札のマス。
   // works の表だけで決めない（表では合っていても、盾のない反射と貫通のように、つながらない組がある）。

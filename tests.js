@@ -217,10 +217,34 @@ for (const a of R.TYPES) for (const b of R.TYPES) {
   const cells = a => a.map(x => x.cell).sort((x, y) => x - y);
   const one = {}; for (let i = 1; i < R.N; i++) one[i] = 'shield'; one[12] = 'slash'; // マス0だけ空き
   eq('数字のマス：空きでは つながらない → 置きかえのマスを出す', cells(R.linkSpots(setup(one).board, 'poison')), [7, 11, 13, 17]);
+  eq('数字のマス：空きと同じ数しか つながらない置きかえ先は出さない', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield', 14: 'shield' }).board, 'poison')), [7, 11, 17]);
   eq('そのときも、棚の数字は0にならない', R.bestLinks(setup(one).board, 'poison'), 1);
   const mv = Object.assign({}, one, { 20: 'poison' });
   eq('入れかえも同じ：空きでは つながらない → 入れかえ先を出す', cells(R.swapSpots(setup(mv).board, 20)), [7, 11, 13, 17]);
   eq('空きで つながるマスがあるときは、空きだけ', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield' }).board, 'poison')), [7, 11, 17]);
+}
+// 棚の数字は「置けるマス全部の中の最大」と同じ。置きかえた方が多く つながる所は、数字を出す（レビュー3回目の指摘1）
+{
+  const cells = a => a.map(x => x.cell + ':' + x.n).join(' ');
+  const g = {}; for (let i = 0; i < R.N; i++) g[i] = 'shield'; delete g[6]; g[11] = 'slash'; g[13] = 'slash'; // 6だけ空き、11と13が斬撃
+  const b = setup(g).board;
+  eq('空きは1本、置きかえは2本 → 両方出す', cells(R.linkSpots(b, 'poison')), '6:1 12:2');
+  eq('棚の数字は、置きかえをふくめた最大', R.bestLinks(b, 'poison'), 2);
+  eq('置きかえても同じ数の所は出さない（札の上を数字だらけにしない）', R.linkSpots(b, 'poison').some(x => x.cell === 16), false);
+  // 棚の数字は、置けるマス全部を1つずつ数えた最大と、いつも同じ（でたらめな盤面300個）
+  let x = 7, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
+  const kinds = R.TYPES.concat(['rubble']);
+  for (let t = 0; t < 300; t++) {
+    const s = setup({}); const fill = rnd();
+    for (let i = 0; i < R.N; i++) if (rnd() < fill) { const k = R.mk(kinds[(rnd() * kinds.length) | 0]); k.lv = 1 + ((rnd() * 3) | 0); if (rnd() < 0.08) k.sealed = 2; s.board[i] = k; }
+    for (const type of R.TYPES) {
+      let max = 0;
+      for (let i = 0; i < R.N; i++) { const c = s.board[i]; if (c && c.type === type && c.lv >= R.MAXLV) continue; max = Math.max(max, R.linksIfPlaced(s.board, type, i).length); }
+      if (R.bestLinks(s.board, type) !== max) bad++;
+      for (const sp of R.linkSpots(s.board, type)) if (R.linksIfPlaced(s.board, type, sp.cell).length !== sp.n) bad++;
+    }
+  }
+  eq('棚の数字＝置けるマス全部の最大（でたらめな盤面300個×24種類）', bad, 0);
 }
 // 光らせる相手（linkMates / swapMates）は、本当に つながる札だけ（レビュー2回目の指摘2）
 {

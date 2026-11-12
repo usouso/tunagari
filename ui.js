@@ -519,7 +519,8 @@
       <li>盤面のブロックを選んで別のマスを選ぶと<b>入れかえ</b>（1手）。棚の1個を<b>キープ</b>に取っておける（手数なし）。</li>
       <li>線が出ていない点線のブロックは、つながる相手がいなくて働いていない。</li>
       <li><b>置く前に、つながる相手が見える。</b>棚のブロックの右上の数字は「いま置くと つながる数」（いちばん多いマスで）。点線の棚ブロックは、いまは相手がいない。</li>
-      <li>棚のブロックを選ぶと、<b>相手になれるブロックが黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
+      <li>棚のブロックを選ぶと、<b>つながる相手が黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
+      <li>ブロックの右下に小さい数字が出たら、「そこに置きかえると、空きマスより多く つながる」という印（がれきの上にも出る）。</li>
     </ul><h3>ブロック一覧（Lv1の数字）</h3>`;
     for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) {
       h += `<h3 style="color:${FAM_COLOR[f]}">${R.FAMS[f]}</h3><div class="cat">`;
@@ -710,6 +711,13 @@
       // マスにのせたときの点線は、置いた後のつながりと同じ
       drawPreLinks(act.cell);
       if (String(preLinks(act.cell)) !== String(want)) CHECK.mismatches.push(`点線 [${preLinks(act.cell)}] / 計算 [${want}]（マス${act.cell}）`);
+      for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) {
+        let max = 0;
+        for (let c = 0; c < R.N; c++) if (R.placeKind(G.s, i, c)) max = Math.max(max, R.linksIfPlaced(board, G.s.shop[i], c).length);
+        const pill = $('#shop').children[i].querySelector('.lk'), num = pill ? +pill.textContent : 0;
+        if (num !== max) CHECK.mismatches.push(`棚の数字 ${num} / 置けるマスの最大 ${max}（${G.s.shop[i]}）`);
+        CHECK.shopChecks = (CHECK.shopChecks || 0) + 1;
+      }
       CHECK.placeChecks = (CHECK.placeChecks || 0) + 1;
       sampleLayout();
       ok = doPlace(act.src, act.cell);
