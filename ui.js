@@ -1,7 +1,8 @@
 /*
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
  * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
- *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck
+ *      ?hp=数（れんしゅうを そのHPで始める。検査用）
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck &scene=thorn（攻撃を1個だけ置く）
  */
 (function () {
   'use strict';
@@ -125,7 +126,7 @@
   }
   function startOne(id, stage) {
     G.mode = 'one'; G.run = null;
-    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, rot: ROT }); enterBattle();
+    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, rot: ROT, hp: Q.has('hp') ? Math.max(1, +Q.get('hp') | 0) : 0 }); enterBattle(); // ?hp=数 … 検査用
   }
   function enterBattle() {
     G.sel = null; G.busy = false; G.view = null; G.pre = null; G.turnSum = { e: 0, p: 0 }; G.hoverId = null;
@@ -407,7 +408,7 @@
       case 'shock': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '感電！ 次は1個多く引く'); log('lp', `感電：${e.dmg}ダメージ。次のターン 1個多く引く`); sfx('big'); return 320;
       case 'freeze': slot('#enemy-dmg', '凍結！', '敵の攻撃が半分'); log('lp', '凍結：このターンの敵の攻撃が半分'); sfx('big'); return 300;
       case 'thorn': if (e.dmg > 0) { G.turnSum.p += e.dmg; slot('#player-dmg', `−${e.dmg}`, 'トゲ'); } return 60;
-      case 'eact': $('#intent-box').classList.add('fx-act'); log('le', `敵：${e.label}`); return 320;
+      case 'eact': G.lastAct = e.label; $('#intent-box').classList.add('fx-act'); log('le', `敵：${e.label}`); return 320;
       case 'ehit': {
         if (e.dodged) { e.cells.forEach(fxCell); slot('#player-dmg', 'よけた', ''); log('le', `　攻撃${e.raw} → よけた`); return 240; }
         G.turnSum.p += e.dmg;
@@ -436,7 +437,7 @@
   async function doEnd() {
     if (G.busy || !G.s || G.s.phase !== 'place') return;
     const s = G.s, f = R.forecast(s), turn = s.turn, e0 = s.stats.total, p0 = s.stats.taken;
-    G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {}; G.lastIntent = s.intent.label; // 負けの画面に出す「さいごの敵の行動」
+    G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {}; G.lastAct = null; // 負けの画面に出す「さいごの敵の行動」。敵が本当に動いたとき（eact）にだけ入る
     const ev = R.endTurn(s);
     G.busy = true; G.turnSum = { e: 0, p: 0 }; G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen], pc: G.pre.p.curse, ch: G.pre.p.charge };
     renderAll();
@@ -515,13 +516,14 @@
     const st = s.stats, keys = Object.keys(st.dealt).sort((a, b) => st.dealt[b] - st.dealt[a]), max = Math.max(1, ...keys.map(k => st.dealt[k]));
     let h = won ? `<h2 class="res-win">${run ? '5連戦 クリア！' : '勝ち！'}</h2>` : `<h2 class="res-lose">負け…</h2>`;
     h += `<p>${run ? `${s.stage + 1}戦目 ` : ''}${e.name}（${s.turn}ターン）。敵のHP ${Math.max(0, s.e.hp)} / ${s.e.max}、あなたのHP ${Math.max(0, s.p.hp)} / ${s.p.max}。</p>`;
-    if (!won) h += `<p>さいごの敵の行動：<b>${G.lastIntent || ''}</b>。この戦いで 受けたダメージ ${st.taken}、防いだダメージ ${st.blocked}。</p>`;
+    const last = G.lastAct ? `さいごの敵の行動：<b>${G.lastAct}</b>。` : '敵が動く前に負けた（こちらのヒットへの トゲ）。';
+    if (!won) h += `<p id="rs-last">${last}この戦いで 受けたダメージ ${st.taken}、防いだダメージ ${st.blocked}。</p>`;
     h += `<h3>この戦いで 与えたダメージ（合計 ${st.total}）</h3><div class="brk">` + keys.map(k => `<span>${SRC_NAMES[k] || (R.B[k] ? R.B[k].name : k)}</span><span class="bb" style="width:${st.dealt[k] / max * 100}%"></span><span>${st.dealt[k]}</span>`).join('') + '</div>';
     h += `<div class="row"><button class="btn primary ready" id="rs-again">${run ? 'もう一度（相手の順を かえて）' : 'もう一度'}</button><button class="btn" id="rs-same">${run ? '同じ相手の順で もう一度' : '5連戦を はじめる'}</button><button class="btn" id="rs-title">タイトルへ</button></div>`;
     if (run) h += `<h3>さいごのデッキ（${run.deck.length}個）</h3>`;
     const body = openSheet(won ? 'win' : 'lose', h);
     if (run) body.appendChild(deckMinis(run.deck, run.lv));
-    CHECK.result = { phase: won ? 'won' : 'lost', stage: s.stage, turn: s.turn, mode: G.mode, runPhase: run ? run.phase : '' };
+    CHECK.result = { phase: won ? 'won' : 'lost', stage: s.stage, turn: s.turn, mode: G.mode, runPhase: run ? run.phase : '', lastAct: G.lastAct, lastText: won ? '' : body.querySelector('#rs-last').textContent };
     const enemyId = s.enemyId, stage = s.stage;
     body.querySelector('#rs-again').addEventListener('click', () => { G.seed = (G.seed * 7 + 13) % 90000 + 1; if (run) startRun(); else startOne(enemyId, stage); });
     body.querySelector('#rs-same').addEventListener('click', () => startRun());
@@ -535,7 +537,7 @@
       <p>1. 毎ターン、山札から <b>${R.HAND}個</b> 引く。敵の予告を見て、盤面に置く（置き方は、発動するまで何回でも変えられる）。</p>
       <p>2. <b>凸</b>が、となりのブロックの<b>凹</b>に向かい合うと「はまる」。能力は 凸 → 凹 に わたる。わたした側は、自分では働かない。わたさない能力ブロックは、自分で1回 働く（半分の力）。</p>
       <p>3. 受け取ったものは、次のブロックへは わたらない。</p>
-      <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。シールドは、左上の盾の分から先に使う。</p>
+      <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。シールドは、前のターンから残った分 → 左上の盾の分、の順に使う。</p>
       <p>5. ターンの終わりに、手札は全部 捨て札へ。山札がなくなったら、捨て札を切り直す。</p>
       <h3>4つの系統（色と形で分かる）</h3>` +
       ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('') +
@@ -649,7 +651,10 @@
     while (guard++ < 400) {
       const s = G.s;
       if (s.phase === 'place') {
-        const L = Bot.search(s, { style });
+        let L = Bot.search(s, { style });
+        if (Q.get('scene') === 'thorn') { // 決まった場面：攻撃ブロックを1個だけ置く（HP1 で狂戦士をなぐると、敵が動く前にトゲで負ける）
+          const id = s.hand.find(x => R.B[s.cards[x].type].fam === 'atk'); L = { board: new Array(R.N).fill(null), rots: {} }; if (id != null) L.board[6] = id;
+        }
         R.clearBoard(s); renderAll();
         for (let cell = 0; cell < R.N; cell++) {
           const id = L.board[cell]; if (id == null) continue;

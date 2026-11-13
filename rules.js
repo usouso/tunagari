@@ -72,9 +72,9 @@
     counter: { fam: 'enh',  name: '反撃',     g: '反', v: [50, 75, 100], sh: [0, 1, 0, 0],
                txt: v => `攻撃に わたすと、敵のヒット1回ごとに その攻撃が ${v}%の力で発動（1ターン${COUNTER_MAX}回まで）。` },
     mirror:  { fam: 'enh',  name: '反射',     g: '鏡', v: [50, 75, 100], sh: [0, 1, 0, 0],
-               txt: v => `盾・堅牢に わたすと、そのブロックが防いだダメージの${v}%を 敵に返す。` },
+               txt: v => `盾・堅牢に わたすと、そのブロックが 敵の攻撃を防いだ分の${v}%を 敵に返す。` },
     leech:   { fam: 'enh',  name: '吸収',     g: '吸', v: [30, 45, 60], sh: [0, 1, 0, 0],
-               txt: v => `攻撃：与えたヒットダメージの${v}%回復。盾・堅牢：そのブロックが防いだダメージの${v}%回復。` },
+               txt: v => `攻撃：与えたヒットダメージの${v}%回復。盾・堅牢：そのブロックが 敵の攻撃を防いだ分の${v}%回復。` },
   };
   const TYPES = Object.keys(B);
   const FAMS = { atk: '攻撃', def: '防御', abil: '能力', enh: '強化' };
@@ -266,8 +266,8 @@
       else if (X.type === 'tough') { out.main = `−${X.n}`; out.lines.push(`敵のヒット1回ごとに −${X.n}`); }
       else { out.main = `${X.n}回`; out.lines.push(`敵の最初のヒットを ${X.n}回 よける`); }
       for (const g of X.got) out.lines.push(`敵のヒット1回ごとに ${giftText(g)}`);
-      if (m.mirror) out.lines.push(`このブロックが防いだダメージの${m.mirror * V('mirror')}%を返す`);
-      if (m.leech) out.lines.push(`このブロックが防いだダメージの${m.leech * V('leech')}%回復`);
+      if (m.mirror) out.lines.push(`このブロックが 敵の攻撃を防いだ分の${m.mirror * V('mirror')}%を返す`);
+      if (m.leech) out.lines.push(`このブロックが 敵の攻撃を防いだ分の${m.leech * V('leech')}%回復`);
     } else if (X.fam === 'abil') {
       out.main = shortGift(X.gives ? X.gift : X.soloGift);
       if (X.gives) {
@@ -525,7 +525,7 @@
       if (leech > 0 && dmg > 0 && p.hp > 0) heal = healPlayer(rd(dmg * leech));
       snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, armorCut, guardCut, heal });
       if (!over && e.thorns > 0) {
-        let t = e.thorns; const sc = absorb(t, null); t -= sc; st.blocked += sc;
+        let t = e.thorns; const sc = absorb(t, null); t -= sc; st.blocked += sc; // トゲを防いだ分は、反射・吸収に数えない（文は「敵の攻撃を防いだ分」）
         if (t > 0) hurtPlayer(t);
         snap({ t: 'thorn', dmg: t, shield: sc });
       }

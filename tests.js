@@ -96,6 +96,17 @@ eq('シールドは左上の盾から使う：反射の盾が先なら 7防い�
 eq('持続強化の盾が先に使われると、のこりは へる（攻撃5：7−5=2 の半分 = 1）', go([['sustain', 1, 1], ['shield', 0, 6], ['shield', 0, 13]], { parts: [A(5)] }).s.p.shield, 1);
 eq('前のターンから残ったシールドは、先に使われて、ターンの終わりに消える', (r => [r.taken, r.s.p.shield])(go([['slash', 0, 6]], { p: { shield: 4 }, parts: [A(10)] })), [6, 0]);
 eq('トゲも 左上の盾から へらす（合計は合う）', go([['shot', 0, 6], ['shield', 0, 13]], { enemy: 'berserk', parts: [A(5)] }).taken, 0);
+// 反射・吸収は「敵の攻撃を防いだ分」だけ。トゲを防いだ分は数えない（Codex レビュー 7afa9f3 の指摘1。文をそう書いた）
+eq('反射→盾：トゲを防いでも返さない（射撃2ヒットのトゲ2を盾が防ぐ。敵に入るのは射撃の4だけ）', (r => [r.dealt, r.taken, r.n('reflect')])(go([['mirror', 1, 1], ['shield', 0, 6], ['shot', 0, 13]], { enemy: 'berserk' })), [4, 0, 0]);
+eq('吸収→盾：トゲを防いでも回復しない', go([['leech', 1, 1], ['shield', 0, 6], ['shot', 0, 13]], { enemy: 'berserk', p: { hp: 50 } }).s.p.hp, 50);
+eq('反射→盾：トゲで2へったあと、敵の攻撃10を5防ぐ → 50% = 3（四捨五入）', (r => [r.dealt, r.taken])(go([['mirror', 1, 1], ['shield', 0, 6], ['shot', 0, 13]], { enemy: 'berserk', parts: [A(10)] })), [4 + 3, 5]);
+ok('反射・吸収の文に「敵の攻撃を防いだ分」と書いてある', R.blockText('mirror', 1).indexOf('敵の攻撃を防いだ分') >= 0 && R.blockText('leech', 1).indexOf('敵の攻撃を防いだ分') >= 0);
+{ // 敵が動く前に負けたら、「敵の行動」の出来事（eact）は ない（画面は、これを見て「さいごの敵の行動」を出す。指摘2）
+  const r = go([['shot', 0, 6]], { enemy: 'berserk', p: { hp: 1 }, parts: [A(5)] });
+  eq('トゲで先に負けたら、敵は行動しない', [r.s.phase, r.n('eact'), r.n('ehit')], ['lost', 0, 0]);
+  const q = go([['shield', 0, 6]], { enemy: 'berserk', p: { hp: 1 }, parts: [A(20)] });
+  eq('敵の攻撃で負けたら、敵の行動の出来事がある', [q.s.phase, q.n('eact')], ['lost', 1]);
+}
 eq('持続強化→毒 このターンは へらない（3+1=4 のまま）', go([['sustain', 1, 1], ['poison', 1, 6]], { e: { poison: 3 } }).s.e.poison, 4);
 eq('持続強化なしなら 毒は半分（4→2）', go([['poison', 1, 6]], { e: { poison: 3 } }).s.e.poison, 2);
 eq('持続強化→炎 50%残る（3+1=4 → 2）', go([['sustain', 2, 7], ['fire', 1, 6]], { e: { fire: 3 } }).s.e.fire, 2);

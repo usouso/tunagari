@@ -71,6 +71,8 @@ async function main() {
       if (!quick) add(sn, w, h, pc, '5連戦 種3 クリアまで（5戦ぜんぶ）', 'auto=1&speed=0&seed=3&picks=sim', { play: true, clear: true });
       for (const id of (quick ? ['mage'] : ENEMIES)) add(sn, w, h, pc, `れんしゅう ${id}（3戦目の強さ）`, `auto=1&speed=0&seed=11&enemy=${id}&stage=2`, { play: true, shot: 'one-' + id });
       add(sn, w, h, pc, '回せる設定（?rot=1）通し', 'auto=1&speed=0&seed=11&rot=1', { play: true });
+      // 敵が動く前に負ける（HP1 で、攻撃ブロックを1個だけ置いて狂戦士をなぐる → トゲで負け）。負けの画面の文を見る
+      add(sn, w, h, pc, '敵が動く前に負ける（トゲ）', 'auto=1&speed=0&seed=11&enemy=berserk&hp=1&scene=thorn', { play: true, lose: true, early: true, shot: 'lose-thorn' });
     }
   }
   const only = (process.argv.find(a => a.startsWith('only=')) || '').slice(5);
@@ -91,6 +93,8 @@ async function main() {
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
       if (c.clear && !(k.result && k.result.phase === 'won' && k.result.runPhase === 'won' && k.result.stage === 4 && k.fights === 5 && k.screens.win > 0 && k.screens.reward >= 8 && k.screens.remove >= 4)) bad.push(`5戦目まで勝ち切れなかった（戦い${k.fights}、${k.result ? k.result.phase + ' ' + (k.result.stage + 1) + '戦目' : '結果なし'}）`);
       if (c.clear) total.clears++;
+      if (c.early && !(k.result && k.result.lastAct === null && /敵が動く前に負けた/.test(k.result.lastText || ''))) bad.push(`敵が動く前に負けたのに、負けの画面の文がちがう（${k.result ? k.result.lastText : ''}）`);
+      if (c.lose && !c.early && !(k.result && k.result.lastAct && (k.result.lastText || '').indexOf('さいごの敵の行動：' + k.result.lastAct) >= 0)) bad.push(`負けの画面に「さいごの敵の行動」が出ていない（${k.result ? k.result.lastText : ''}）`);
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
       if (c.screen && !(k.screens && k.screens[c.screen] > 0)) bad.push(`「${c.screen}」の画面が開いていない`);
