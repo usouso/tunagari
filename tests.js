@@ -316,7 +316,7 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   const it = { parts: [A(5, 3), { k: 'guard', n: 8 }, { k: 'seal', n: 2 }, { k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'curse', n: 3 }], cells: { rubble: [6, 7] } };
   eq('予告の文', R.intentLines(it).map(x => x.text.split('（')[0]), ['攻撃 5×3回', '結界 8', '封印 2個', '破壊 1個', 'がれき 2マス', '呪い+3']);
   const g = R.newFight({ enemyId: 'golem', seed: 1, stage: 0 });
-  eq('ゴーレム 1戦目の1つ目の予告は「なぐる 攻撃12」', [g.intent.label, g.intent.parts[0].dmg], ['なぐる', 12]);
+  eq('ゴーレム 1戦目の1つ目の予告は「なぐる 攻撃13」（12 × 1戦目の倍率1.1 = 13.2 → 13）', [g.intent.label, g.intent.parts[0].dmg], ['なぐる', 13]);
   const g4 = R.newFight({ enemyId: 'golem', seed: 1, stage: 4 });
   eq('5戦目は 攻撃とHPが倍率どおり', [g4.intent.parts[0].dmg, g4.e.max], [Math.round(12 * R.STAGE_ATK[4]), Math.round(80 * R.STAGE_HP[4])]);
 }
