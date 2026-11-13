@@ -260,6 +260,7 @@
     const card = s.cards[id], def = R.B[card.type], lv = lvOf(card.type), cell = s.board.indexOf(id);
     let h = `<h3>${def.name}${lv > 1 ? ` Lv${lv}` : ''} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></h3><p>${tipify(bText(card.type, lv))}</p>`;
     if (def.kw) h += `<p class="kw"><b>${R.KW[def.kw].name}</b>：${R.KW[def.kw].text}</p>`;
+    if (ABIL && def.face) for (const k of Object.values(def.face)) if (R.KW[k]) h += `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`; // 攻め・守り版：もう1つの顔の ことば も出す
     h += `<p class="sub">${R.FAM_HINT[def.fam]}</p>`;
     if (cell >= 0) {
       const sum = R.summary(G.busy ? G.preD : R.derive(s), cell);
