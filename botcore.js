@@ -28,7 +28,7 @@
     if (style === 'attack') wD = 0;
     let sc = dealt - wD * lost;
     // 次のターンより後に効くもの
-    sc += c.e.poison * 1.3 + c.e.fire * 1.5 + c.e.ice * 0.5 + c.e.shock * 0.8 + c.p.charge * 0.9 + c.drawBonus * 6;
+    sc += c.e.poison * 1.3 + c.e.frail * 1.2 + c.e.fire * 1.5 + c.e.ice * 0.5 + c.e.shock * 0.8 + c.p.charge * 0.9 + c.drawBonus * 6;
     if (style !== 'attack') sc += c.p.shield * 0.5;
     sc -= (c.gone.length - s0.gone.length) * 8;
     if (c.deck.length && c.discard.length) sc += Math.min(c.deck.length, 2) * 1.5; // 再発動で山札の上にもどした札（次のターンも引ける）
@@ -162,7 +162,7 @@
   function trial(run, deck, opt, lv) {
     const next = run.stage + 1, enemyId = run.order[next], K = opt.simFights || 3; let sc = 0;
     for (let k = 0; k < K; k++) {
-      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, hand: run.handSize });
+      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, hand: run.handSize, abil: run.abil });
       playFight(f, { style: 'smart', restarts: 1, passes: 1, maxTurns: 14 });
       sc += f.phase === 'won' ? 200 + f.p.hp - f.turn : -(f.e.hp / f.e.max) * 100;
     }
@@ -192,7 +192,7 @@
   // 5連戦を最後まで自動で遊ぶ
   function playRun(seed, opt) {
     opt = opt || {};
-    const run = R.newRun(seed, { hand: opt.hand, order: opt.order }), rand = lcg(seed * 977 + 5);
+    const run = R.newRun(seed, { hand: opt.hand, order: opt.order, abil: opt.abil }), rand = lcg(seed * 977 + 5);
     const fights = [];
     let guard = 0;
     while (guard++ < 50) {

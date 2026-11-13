@@ -14,10 +14,10 @@ function eq(name, got, want) {
 }
 function ok(name, cond, note) { if (cond) pass++; else { fail++; console.log(`✗ ${name}${note ? '  ' + note : ''}`); } }
 const A = (dmg, hits) => ({ k: 'atk', dmg, hits: hits || 1 });
-// 盤面を直接つくる。 spec: [[種類, 向き, マス], …]（札の番号は ならべた順）。 opt: { enemy, parts（敵の行動）, e, p, lv, sealed }
+// 盤面を直接つくる。 spec: [[種類, 向き, マス], …]（札の番号は ならべた順）。 opt: { enemy, parts（敵の行動）, e, p, lv, sealed, abil（攻め・守り版） }
 function mk(spec, opt) {
   opt = opt || {};
-  const s = R.newFight({ enemyId: opt.enemy || 'dummy', deck: spec.map(x => [x[0], x[1]]), hand: spec.length, seed: 5, lv: opt.lv });
+  const s = R.newFight({ enemyId: opt.enemy || 'dummy', deck: spec.map(x => [x[0], x[1]]), hand: spec.length, seed: 5, lv: opt.lv, abil: opt.abil });
   s.sealed = opt.sealed || [];
   spec.forEach((x, id) => { if (x[2] != null && !R.put(s, id, x[2])) throw new Error('置けない: ' + x); });
   s.intent = { label: 'テスト', parts: opt.parts || [], cells: { rubble: [] } };
@@ -136,6 +136,36 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('効く強化は「働いている」', R.summary(R.derive(mk([['amp', 1, 1], ['shield', 0, 6]])), 1).idle, false);
   eq('はまっていない強化は「働いていない」', R.summary(R.derive(mk([['pierce', 0, 1]])), 1).idle, true);
   ok('系統の説明に「小さく効く」が書いてある', R.FAM_HINT.enh.indexOf('小さく効く') >= 0);
+}
+
+{ // 攻め・守り版（?abil=1。本人の答え 8A・9A）：毒・再生は、攻撃に のせると「攻め」、防御に のせると「守り」
+  const AB = { abil: true }, ab = o => Object.assign({}, o, AB);
+  ok('ふだんの版の毒の文は そのまま', R.blockText('poison', 1) === '毒+2。');
+  eq('攻め・守り版の文（毒）', R.blockText('poison', 1, true), '攻め：毒+2。 守り：弱る+2。');
+  eq('攻め・守り版の文（再生）', R.blockText('regen', 2, true), '攻め：たまり+3。 守り：HP+3。');
+  ok('ほかの能力の文は変わらない', R.blockText('fire', 1, true) === R.blockText('fire', 1));
+  const a1 = go([['poison', 1, 1], ['shot', 1, 6]], AB);
+  eq('毒→射撃（攻め）：ヒットごとに 毒+2（2ヒット＝毒4。ヒット2+2 と 毒4）', [a1.gifts('poison'), a1.gifts('frail'), a1.dealt], [2, 0, 4 + 4]);
+  const d1 = go([['poison', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 3)] }));
+  eq('毒→盾（守り）：敵のヒットごとに 弱る+2。10×3 を盾7で → 3、10−2=8、10−4=6 を受ける', [d1.gifts('frail'), d1.gifts('poison'), d1.taken], [3, 0, 3 + 8 + 6]);
+  eq('ふだんの版なら 毒→盾 は毒になり、弱らない（3+10+10）', go([['poison', 1, 1], ['shield', 0, 6]], { parts: [A(10, 3)] }).taken, 23);
+  eq('弱るは ターンの終わりに半分（6 → 3）', d1.s.e.frail, 3);
+  eq('弱るは 1回のダメージより多くは へらさない（弱る5：攻撃3 → 0、攻撃20 → 15 を盾7で 8）', go([['shield', 0, 6]], ab({ parts: [A(3), A(20)], e: { frail: 5 } })).taken, 8);
+  eq('脱皮は 弱るも消す', go([], ab({ parts: [{ k: 'cleanse' }], e: { frail: 4 } })).s.e.frail, 0);
+  const r1 = go([['regen', 1, 1], ['shot', 1, 6]], ab({ p: { hp: 50 } }));
+  eq('再生→射撃（攻め）：ヒットごとに たまり+2（次のターンに のる）。回復はしない', [r1.s.p.charge, r1.s.p.hp], [4, 50]);
+  const r2 = go([['regen', 1, 1], ['shield', 0, 6]], ab({ p: { hp: 50 }, parts: [A(1, 3)] }));
+  eq('再生→盾（守り）：敵のヒットごとに HP+2（1×3 は盾が防ぐ）', [r2.s.p.hp, r2.s.p.charge], [56, 0]);
+  const p1 = go([['poison', 1, 1]], AB);
+  eq('毒 ひとり：攻めを半分の力（毒+1 → ターンの終わりに1ダメージ）', [p1.gifts('poison'), p1.gifts('frail'), p1.dealt], [1, 0, 1]);
+  eq('再生 ひとり：攻めを半分の力（たまり+1）', go([['regen', 1, 1]], AB).s.p.charge, 1);
+  const sm = R.summary(R.derive(mk([['poison', 1, 1], ['shield', 0, 6]], AB)), 1);
+  ok('わたす側の説明に「盾に 弱る+2」と出る', sm.lines.join('').indexOf('盾に 弱る+2') >= 0, sm.lines.join(''));
+  ok('受け取った盾の説明に「弱る+2」と出る', R.summary(R.derive(mk([['poison', 1, 1], ['shield', 0, 6]], AB)), 6).lines.join('').indexOf('弱る+2') >= 0);
+  const fc = R.forecast(mk([['poison', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 3)] })));
+  eq('攻め・守り版も 予想＝結果', [fc.taken, fc.dealt], [d1.taken, d1.dealt]);
+  ok('弱る の ことばの説明がある', !!R.termText('frail') && R.termText('frail').name === '弱る');
+  eq('追撃は 弱るも「状態1種類」に数える（ひとり：1×(1+1) = 2）', go([['chase', 1, 1]], ab({ e: { frail: 2 } })).dealt, 2);
 }
 
 // ------------------------------------------------------------ 4. 能力：ひとり＝1回／攻撃に わたす＝ヒットごと／防御に わたす＝敵のヒットごと

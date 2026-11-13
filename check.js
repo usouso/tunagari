@@ -61,6 +61,7 @@ async function main() {
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
+    if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版（?abil=1）5連戦 種11', 'auto=1&speed=0&seed=11&abil=1', { play: true, shot: 'abil' });
     add(sn, w, h, pc, '回す操作（右クリック・R・ボタン・もう一度押す）', 'auto=1&speed=0&seed=11&scene=rotate', { stop: true, rotate: true });
     add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
     if (lite) continue;

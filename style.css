@@ -86,6 +86,7 @@ a { color: inherit; }
 .chip { border-radius: 999px; padding: 1px 10px; font-size: 14px; font-weight: 700; background: var(--panel2); border: 1px solid var(--line); white-space: nowrap; }
 .chip.poison { color: var(--poison); border-color: var(--poison); }
 .chip.fire { color: var(--fire); border-color: var(--fire); }
+.chip.frail { color: #c6a6ff; border-color: #c6a6ff; }
 .chip.ice { color: var(--ice); border-color: var(--ice); }
 .chip.shock { color: var(--shock); border-color: var(--shock); }
 .chip.guard { color: #d9dde6; border-color: #9aa3b5; }
