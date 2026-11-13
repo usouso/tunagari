@@ -420,13 +420,13 @@
   }
 
   // ---------------------------------------------------------------- 1戦の状態
-  // o: { enemyId, stage, deck:[[type,rot]|{type,rot}], seed, hp, rot（回せるか）, hand（引く数） }
+  // o: { enemyId, stage, deck:[[type,rot]|{type,rot}], seed, hp, hand（引く数） }
   function newFight(o) {
     const def = ENEMIES[o.enemyId], stage = o.stage || 0;
     const cards = (o.deck || START_DECK).map((c, id) => (Array.isArray(c) ? { id, type: c[0], rot: c[1] & 3 } : { id, type: c.type, rot: c.rot & 3 }));
     const hp = Math.round(def.hp * STAGE_HP[stage]);
     const s = {
-      rs: (o.seed | 0) || 1, enemyId: o.enemyId, stage, turn: 0, phase: 'place', canRot: !!o.rot, handSize: o.hand || HAND, lv: o.lv || {},
+      rs: (o.seed | 0) || 1, enemyId: o.enemyId, stage, turn: 0, phase: 'place', handSize: o.hand || HAND, lv: o.lv || {},
       cards, deck: [], discard: [], gone: [], hand: [], board: new Array(N).fill(null),
       sealed: [], blocked: [], sealNext: 0, blockNext: [], drawBonus: 0,
       p: { hp: o.hp || MAXHP, max: MAXHP, shield: 0, curse: 0, charge: 0, chargeNext: 0 },
@@ -441,7 +441,7 @@
   }
   function cloneState(s) {
     const c = Object.assign({}, s);
-    c.cards = s.canRot ? s.cards.map(k => ({ id: k.id, type: k.type, rot: k.rot })) : s.cards; // 回さないなら札は書きかえないので共有
+    c.cards = s.cards.map(k => ({ id: k.id, type: k.type, rot: k.rot })); // 向きは回すと変わるので写す
     c.deck = s.deck.slice(); c.discard = s.discard.slice(); c.gone = s.gone.slice(); c.hand = s.hand.slice(); c.board = s.board.slice();
     c.sealed = s.sealed.slice(); c.blocked = s.blocked.slice(); c.blockNext = s.blockNext.slice();
     c.p = Object.assign({}, s.p); c.e = Object.assign({}, s.e);
@@ -494,8 +494,8 @@
   }
   function take(s, id) { const c = s.board.indexOf(id); if (s.phase !== 'place' || c < 0) return false; s.board[c] = null; return true; }
   function clearBoard(s) { if (s.phase !== 'place') return false; s.board = new Array(N).fill(null); return true; }
-  function rotate(s, id) { // ?rot=1 のときだけ（くらべる用）
-    if (!s.canRot || s.phase !== 'place' || s.hand.indexOf(id) < 0) return false;
+  function rotate(s, id) { // 手札のブロック（盤面に置いたものも）を 時計回りに90度。発動するまで何回でも
+    if (s.phase !== 'place' || s.hand.indexOf(id) < 0) return false;
     s.cards[id].rot = (s.cards[id].rot + 1) & 3; return true;
   }
   // 置く前に見せる用：id を cell に置いたら、そのブロックに はまる所（効く・効かない）
@@ -693,14 +693,14 @@
   // run.phase: 'fight' | 'reward'（ブロックをえらぶ）| 'remove'（1個はずす）| 'won' | 'lost'
   function newRun(seed, o) {
     o = o || {};
-    const run = { rs: ((seed | 0) || 1) ^ 0x5bd1e995, seed: (seed | 0) || 1, stage: 0, hp: MAXHP, max: MAXHP, canRot: !!o.rot, handSize: o.hand || HAND,
+    const run = { rs: ((seed | 0) || 1) ^ 0x5bd1e995, seed: (seed | 0) || 1, stage: 0, hp: MAXHP, max: MAXHP, handSize: o.hand || HAND,
                   deck: START_DECK.map(c => ({ type: c[0], rot: c[1] })), order: [], phase: 'fight', fight: null, reward: null, lv: {}, added: [], removed: [], ups: [] };
     run.order = o.order || shuffle(run, ENEMY_IDS.slice());
     startFight(run);
     return run;
   }
   function startFight(run) {
-    run.fight = newFight({ enemyId: run.order[run.stage], stage: run.stage, deck: run.deck, lv: Object.assign({}, run.lv), seed: run.seed * 31 + run.stage * 7919 + 17, hp: run.hp, rot: run.canRot, hand: run.handSize });
+    run.fight = newFight({ enemyId: run.order[run.stage], stage: run.stage, deck: run.deck, lv: Object.assign({}, run.lv), seed: run.seed * 31 + run.stage * 7919 + 17, hp: run.hp, hand: run.handSize });
     run.phase = 'fight';
   }
   // ごほうび3つ。もっている種類は、半分の確率で「レベルアップ」（その種類ぜんぶが強くなる）になる。それ以外は新しいブロック（向きは でたらめ）。
@@ -737,18 +737,6 @@
     run.stage++; startFight(run);
     return true;
   }
-  // デッキの中で、このブロックの凸が はまる凹の数（give）と、このブロックの凹に はまる凸の数（take）。えらぶ画面の めやす。
-  function fitCount(deck, card) {
-    const e = edges(card.type, card.rot); let give = 0, take = 0;
-    for (const c of deck) {
-      const x = edges(c.type, c.rot);
-      for (let sd = 0; sd < 4; sd++) {
-        if (e[sd] === 1 && x[(sd + 2) % 4] === -1) give++;
-        if (e[sd] === -1 && x[(sd + 2) % 4] === 1) take++;
-      }
-    }
-    return { give, take };
-  }
 
   return {
     W, H, N, HAND, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
@@ -756,6 +744,6 @@
     blockText, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
     newFight, cloneState, beginTurn, makeIntent, cellOf, canPut, put, take, clearBoard, rotate, linksIfPut,
     resolve, endTurn, forecast,
-    newRun, startFight, finishFight, pickReward, removeCard, rollReward, fitCount,
+    newRun, startFight, finishFight, pickReward, removeCard, rollReward,
   };
 });

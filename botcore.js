@@ -63,7 +63,7 @@
     }
     const base = style === 'blind' ? blindCopy(s) : R.cloneState(s);
     const s0 = style === 'blind' ? base : s;
-    const canRot = !!s.canRot, rotN = canRot ? 4 : 1;
+    const canRot = true, rotN = 4; // ブロックは いつでも回せる
     const restarts = opt.restarts || 3, passes = opt.passes || 3;
     let best = null;
     const nbFree = i => R.NB[i].filter(j => j >= 0 && free.indexOf(j) >= 0).length;
@@ -131,7 +131,7 @@
     R.clearBoard(s);
     for (let cell = 0; cell < N; cell++) {
       const id = L.board[cell]; if (id == null) continue;
-      if (s.canRot && L.rots[id] != null) { let g = 0; while (s.cards[id].rot !== L.rots[id] && g++ < 4) R.rotate(s, id); }
+      if (L.rots[id] != null) { let g = 0; while (s.cards[id].rot !== L.rots[id] && g++ < 4) R.rotate(s, id); }
       R.put(s, id, cell);
     }
   }
@@ -162,7 +162,7 @@
   function trial(run, deck, opt, lv) {
     const next = run.stage + 1, enemyId = run.order[next], K = opt.simFights || 3; let sc = 0;
     for (let k = 0; k < K; k++) {
-      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, rot: run.canRot, hand: run.handSize });
+      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, hand: run.handSize });
       playFight(f, { style: 'smart', restarts: 1, passes: 1, maxTurns: 14 });
       sc += f.phase === 'won' ? 200 + f.p.hp - f.turn : -(f.e.hp / f.e.max) * 100;
     }
@@ -192,7 +192,7 @@
   // 5連戦を最後まで自動で遊ぶ
   function playRun(seed, opt) {
     opt = opt || {};
-    const run = R.newRun(seed, { rot: opt.rot, hand: opt.hand, order: opt.order }), rand = lcg(seed * 977 + 5);
+    const run = R.newRun(seed, { hand: opt.hand, order: opt.order }), rand = lcg(seed * 977 + 5);
     const fights = [];
     let guard = 0;
     while (guard++ < 50) {

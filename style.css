@@ -166,6 +166,8 @@ a { color: inherit; }
 .pc.fx-break { animation: fx-break .5s ease-in forwards; }
 @keyframes fx-break { 0% { transform: scale(1); } 100% { transform: scale(.4) rotate(18deg); opacity: .3; } }
 .pc.fx-new { animation: fx-new .18s ease-out; }
+.pc.fx-turn { animation: fx-turn .16s ease-out; }
+@keyframes fx-turn { 0% { transform: rotate(-90deg) scale(.9); } 100% { transform: none; } }
 @keyframes fx-new { 0% { transform: scale(.8); } 100% { transform: scale(1); } }
 #board .pc, #hand .pc { --ps: var(--cell); }
 #drag-ghost { position: fixed; z-index: 99; pointer-events: none; width: var(--cell); height: var(--cell); transform: translate(-50%, -50%); opacity: .92; }

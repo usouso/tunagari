@@ -61,6 +61,7 @@ async function main() {
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
+    add(sn, w, h, pc, '回す操作（右クリック・R・ボタン・もう一度押す）', 'auto=1&speed=0&seed=11&scene=rotate', { stop: true, rotate: true });
     add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
     if (lite) continue;
     add(sn, w, h, pc, 'はずす画面', 'auto=1&speed=0&seed=11&screen=remove', { stop: true, screen: 'remove', shot: 'remove' });
@@ -71,7 +72,6 @@ async function main() {
       if (!quick) for (const seed of [222, 3333]) add(sn, w, h, pc, `5連戦 種${seed}（決着まで。途中で負けてもよい）`, `auto=1&speed=0&seed=${seed}`, { play: true });
       if (!quick) add(sn, w, h, pc, '5連戦 種3 クリアまで（5戦ぜんぶ）', 'auto=1&speed=0&seed=3&picks=sim', { play: true, clear: true });
       for (const id of (quick ? ['mage'] : ENEMIES)) add(sn, w, h, pc, `れんしゅう ${id}（3戦目の強さ）`, `auto=1&speed=0&seed=11&enemy=${id}&stage=2`, { play: true, shot: 'one-' + id });
-      add(sn, w, h, pc, '回せる設定（?rot=1）通し', 'auto=1&speed=0&seed=11&rot=1', { play: true });
       // 敵が動く前に負ける（HP1 で、攻撃ブロックを1個だけ置いて狂戦士をなぐる → トゲで負け）。負けの画面の文を見る
       // ことばの説明を全部 出す場面（状態と予告を直接つくる）。3体で、装甲・身かわし・トゲの説明も出す
       for (const id of ['golem', 'hunter', 'berserk']) add(sn, w, h, pc, `ことばの説明を全部 出す（${id}）`, `auto=1&speed=0&seed=11&enemy=${id}&scene=terms`, { stop: true, terms: true, shot: id === 'golem' ? 'terms' : null });
@@ -99,6 +99,8 @@ async function main() {
       if (c.early && !(k.result && k.result.lastAct === null && /敵が動く前に負けた/.test(k.result.lastText || ''))) bad.push(`敵が動く前に負けたのに、負けの画面の文がちがう（${k.result ? k.result.lastText : ''}）`);
       if (c.lose && !c.early && !(k.result && k.result.lastAct && (k.result.lastText || '').indexOf('さいごの敵の行動：' + k.result.lastAct) >= 0)) bad.push(`負けの画面に「さいごの敵の行動」が出ていない（${k.result ? k.result.lastText : ''}）`);
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
+      if (c.rotate && !(k.rotateScene && k.rotateScene.ok)) bad.push('回す操作の場面が最後まで行かなかった');
+      if (c.play && !c.lose && !(k.rotates > 0)) bad.push('通しで、もう一度押して回す操作が1回も起きなかった');
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
       if (c.screen && !(k.screens && k.screens[c.screen] > 0)) bad.push(`「${c.screen}」の画面が開いていない`);
       if (c.tip && !(k.tipShown && k.tipShown.key === c.tip && !k.tipShown.hidden && k.tipShown.text.indexOf('結界') === 0 && k.tipShown.text.length > 10)) bad.push(`ことばの説明が出ていない（${JSON.stringify(k.tipShown)}）`);

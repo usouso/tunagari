@@ -325,9 +325,13 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('手札から 札のあるマスに置くと、もとの札は手札にもどる', [R.put(s, c, 6), s.board[6], R.cellOf(s, a)], [true, c, -1]);
   eq('もどす', [R.take(s, c), s.board[6]], [true, null]);
   eq('手札にない札は置けない', R.put(s, 99, 3), false);
-  eq('回すのは ?rot=1 のときだけ', R.rotate(s, b), false);
-  const r = R.newFight({ enemyId: 'dummy', seed: 4, rot: true }), id = r.hand[0], r0 = r.cards[id].rot;
-  eq('?rot=1 なら回せる', [R.rotate(r, id), r.cards[id].rot], [true, (r0 + 1) & 3]);
+  const b0 = s.cards[b].rot;
+  eq('盤面のブロックも回せる（時計回りに1つ）', [R.rotate(s, b), s.cards[b].rot], [true, (b0 + 1) & 3]);
+  R.rotate(s, b); R.rotate(s, b); R.rotate(s, b);
+  eq('4回で もとの向き', s.cards[b].rot, b0);
+  eq('手札にないブロックは回せない', R.rotate(s, 99), false);
+  const sc = R.cloneState(s); R.rotate(sc, b);
+  eq('写しで回しても、もとの向きは変わらない（予想・ボット用）', s.cards[b].rot, b0);
   R.clearBoard(s); eq('全部もどす', s.board.every(x => x == null), true);
 }
 
@@ -347,7 +351,6 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('ひとりの再生は「自分で1回」', [R.summary(d, 10).gives, R.summary(d, 10).main], [false, '+1']);
   const f = R.forecast(s);
   eq('予想（与える24、毒は敵が攻撃しないので0）', [f.dealt, f.poison], [24, 0]);
-  eq('ごほうびの めやす：増幅(凸が下)が はまる凹は、はじめのデッキに5つ', R.fitCount(R.START_DECK.map(c => ({ type: c[0], rot: c[1] })), { type: 'amp', rot: 1 }).give, 5);
 }
 
 // ------------------------------------------------------------ 8b. ことばの説明（のせると出る文）は、ルールの数字と同じ
@@ -438,9 +441,6 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('同じ種なら同じ結果', a.fights.map(f => [f.enemy, f.turns, f.hp1, f.total]), b.fights.map(f => [f.enemy, f.turns, f.hp1, f.total]));
   const c = Bot.playRun(43, { style: 'smart', pick: 'random' });
   ok('種がちがえば ちがう結果', JSON.stringify(a.fights) !== JSON.stringify(c.fights));
-  // 回せる設定でも こわれない
-  const r = Bot.playRun(5, { style: 'smart', pick: 'random', rot: true, restarts: 1, passes: 1 });
-  ok('回せる設定（?rot=1）でも最後まで動く', r.fights.length >= 1);
 }
 
 console.log(`\n合格 ${pass} / 失敗 ${fail}`);

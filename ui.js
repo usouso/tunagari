@@ -1,8 +1,8 @@
 /*
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
- * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
+ * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1
  *      ?hp=数（れんしゅうを そのHPで始める。検査用）
- *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）| terms（ことばの説明を全部 出す）
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）| terms（ことばの説明を全部 出す）| rotate（回す操作）
  */
 (function () {
   'use strict';
@@ -10,7 +10,7 @@
   const $ = s => document.querySelector(s);
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const Q = new URLSearchParams(location.search);
-  const AUTO = Q.get('auto') === '1', MUTE = AUTO || Q.get('mute') === '1', ROT = Q.get('rot') === '1';
+  const AUTO = Q.get('auto') === '1', MUTE = AUTO || Q.get('mute') === '1';
   const STOP = Q.has('stop') ? +Q.get('stop') : 0, SCREEN = Q.get('screen') || '';
   const FAM_COLOR = { atk: 'var(--atk)', def: 'var(--def)', abil: 'var(--abil)', enh: 'var(--enh)' };
   const SRC_NAMES = { fire: '炎', chase: '追撃', consume: '毒消費', poison: '毒', shock: '感電', mirror: '反射', charge: 'たまり' };
@@ -20,7 +20,7 @@
     speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), seed: Q.has('seed') ? (+Q.get('seed') | 0) : ((Date.now() % 90000) + 1),
     turnSum: { e: 0, p: 0 }, gone: {},
   };
-  const CHECK = { turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
+  const CHECK = { rotates: 0, turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
                   layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
   window.__check = CHECK; window.__G = G;
   window.addEventListener('error', e => CHECK.errors.push(String(e.message)));
@@ -114,7 +114,7 @@
   const lvOf = type => R.lvOf(D() ? D().lv : (G.run ? G.run.lv : {}), type);
 
   // ------------------------------------------------------------ タイトル
-  function previewOrder() { return R.newRun(G.seed, { rot: ROT }).order; }
+  function previewOrder() { return R.newRun(G.seed).order; }
   function renderTitle() {
     const rules = $('#title-rules'); rules.innerHTML = '';
     const RULES = [
@@ -142,16 +142,15 @@
     renderTitle();
   }
   function startRun() {
-    G.mode = 'run'; G.run = R.newRun(G.seed, { rot: ROT }); G.s = G.run.fight; enterBattle();
+    G.mode = 'run'; G.run = R.newRun(G.seed); G.s = G.run.fight; enterBattle();
   }
   function startOne(id, stage) {
     G.mode = 'one'; G.run = null;
-    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, rot: ROT, hp: Q.has('hp') ? Math.max(1, +Q.get('hp') | 0) : 0 }); enterBattle(); // ?hp=数 … 検査用
+    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, hp: Q.has('hp') ? Math.max(1, +Q.get('hp') | 0) : 0 }); enterBattle(); // ?hp=数 … 検査用
   }
   function enterBattle() {
     G.sel = null; G.busy = false; G.view = null; G.pre = null; G.turnSum = { e: 0, p: 0 }; G.hoverId = null;
     $('#title-screen').hidden = true; $('#battle').hidden = false; $('#sheet').hidden = true; $('#btn-quit').hidden = false;
-    $('#btn-rot').hidden = !ROT;
     $('#log').innerHTML = ''; $('#enemy-dmg').innerHTML = ''; $('#player-dmg').innerHTML = '';
     const e = R.ENEMIES[G.s.enemyId];
     $('#enemy-glyph').textContent = e.g; $('#enemy-name').textContent = e.name; $('#enemy-trait').innerHTML = tipify(e.trait);
@@ -269,7 +268,7 @@
   function renderGuide() {
     const s = G.s; let t;
     if (G.busy) t = '発動中…';
-    else if (G.sel != null) t = '置くマスを押す。黄色いマスは「はまる」所（数字は はまる数）。';
+    else if (G.sel != null) t = '置くマスを押す。黄色いマスは「はまる」所（数字は はまる数）。えらんだブロックを もう一度押すと 回る（右クリック・R でも）。';
     else if (s.board.every(x => x == null)) t = '手札のブロックを 盤面に置こう（ドラッグ。または、えらんでからマスを押す）。';
     else t = '組めたら「発動！」。置き方は、発動するまで何回でも変えられる。';
     $('#guide').textContent = t;
@@ -300,7 +299,7 @@
   }
 
   // ------------------------------------------------------------ 操作（置き方は、発動するまで何回でも変えられる）
-  function uiSelect(id) { if (G.busy) return; G.sel = G.sel === id ? null : id; renderAll(); }
+  function uiSelect(id) { if (G.busy) return; if (G.sel === id) { uiRotate(); return; } G.sel = id; renderAll(); } // えらんだブロックを もう一度押すと回る
   function uiPut(id, cell) {
     if (G.busy) return false;
     const before = R.derive(G.s).links.filter(l => l.ok).length;
@@ -313,7 +312,14 @@
   }
   function uiTake(id) { if (G.busy || !R.take(G.s, id)) return false; G.sel = null; renderAll(); return true; }
   function uiClear() { if (G.busy) return; R.clearBoard(G.s); G.sel = null; renderAll(); }
-  function uiRotate() { if (G.busy || G.sel == null) return; if (R.rotate(G.s, G.sel)) renderAll(); }
+  function uiRotate(id) {
+    if (id == null) id = G.sel;
+    if (G.busy || id == null || !R.rotate(G.s, id)) return false;
+    renderAll(); sfx('place');
+    const p = document.querySelector(`#board .pc[data-id="${id}"], #hand .pc[data-id="${id}"]`); if (p) p.classList.add('fx-turn');
+    if (drag && drag.on && drag.id === id) { const g = $('#drag-ghost'); g.innerHTML = ''; g.appendChild(pieceEl(G.s.cards[id], { lv: lvOf(G.s.cards[id].type) })); }
+    return true;
+  }
   function clickPiece(id) {
     if (G.busy) return;
     const cell = R.cellOf(G.s, id);
@@ -367,6 +373,7 @@
     if (G.busy || Date.now() - lastDragEnd < 250) return;
     const p = ev.target.closest('.pc'); if (p) { clickPiece(+p.dataset.id); return; }
     if (G.sel != null && R.cellOf(G.s, G.sel) >= 0) uiTake(G.sel); // 盤面のブロックをえらんで手札の所を押す：もどす
+    else if (G.sel != null) { G.sel = null; renderAll(); } // 手札のすきまを押す：えらぶのをやめる
   });
   // のせたら説明、マスにのせたら予想の変化
   document.addEventListener('pointerover', ev => {
@@ -379,7 +386,12 @@
   });
   $('#btn-end').addEventListener('click', () => doEnd());
   $('#btn-clear').addEventListener('click', uiClear);
-  $('#btn-rot').addEventListener('click', uiRotate);
+  $('#btn-rot').addEventListener('click', () => uiRotate());
+  // 右クリックで回す（えらんでいなくても、そのブロックが回る）
+  document.addEventListener('contextmenu', ev => {
+    const p = ev.target.closest && ev.target.closest('#board .pc, #hand .pc'); if (!p || !G.s) return;
+    ev.preventDefault(); if (!G.busy) uiRotate(+p.dataset.id);
+  });
   $('#btn-quit').addEventListener('click', showTitle);
   $('#btn-start').addEventListener('click', startRun);
   $('#btn-reroll').addEventListener('click', () => { G.seed = (G.seed * 7 + 13) % 90000 + 1; renderTitle(); });
@@ -389,7 +401,7 @@
   $('#vol').addEventListener('input', e => { vol = +e.target.value / 100; });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { $('#help').hidden = true; if (G.s && !G.busy && $('#sheet').dataset.kind === 'deck') $('#sheet').hidden = true; if (G.s && !G.busy) { G.sel = null; renderAll(); } }
-    if ((e.key === 'r' || e.key === 'R') && ROT) uiRotate();
+    if (e.key === 'r' || e.key === 'R') uiRotate(drag && drag.on ? drag.id : null);
   });
   window.addEventListener('resize', () => { if (G.s && !$('#battle').hidden) renderAll(); });
   if (Q.has('speed')) { const o = [...$('#speed').options].find(x => +x.value === G.speed); if (o) $('#speed').value = o.value; }
@@ -506,13 +518,12 @@
       const c = el('button', 'opt'); c.dataset.opt = i;
       const top = el('div', 'otop'), op = el('div', 'op'); op.appendChild(pieceEl({ type: o.type, rot: o.up ? 0 : o.rot }, { lv: o.up ? o.lv : cur, name: false }));
       top.appendChild(op);
-      const fit = o.up ? null : R.fitCount(run.deck, o);
       top.appendChild(el('div', '', `<div class="ok">${o.up ? `レベルアップ Lv${cur} → Lv${o.lv}` : '新しいブロック'}</div><div class="on">${def.name} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></div>`));
       c.appendChild(top);
       c.appendChild(el('div', 'ot', tipify(R.blockText(o.type, o.up ? o.lv : cur))));
       if (def.kw) c.appendChild(el('div', 'os', `${R.KW[def.kw].name}：${R.KW[def.kw].text}`));
       c.appendChild(el('div', 'os', o.up ? `デッキの${def.name}（${run.deck.filter(k => k.type === o.type).length}個）が ぜんぶ強くなる。前：${R.blockText(o.type, cur)}`
-        : def.fam === 'atk' || def.fam === 'def' ? `この凹に はまる凸：デッキに ${fit.take}個` : `この凸が はまる凹：デッキに ${fit.give}か所`));
+        : R.FAM_HINT[def.fam]));
       c.addEventListener('click', () => pickReward(i));
       body.querySelector('#opts').appendChild(c);
     });
@@ -676,7 +687,7 @@
   }
   // 「はまるマスの数字」を1つ えらんで、本当に置いて、その数だけ はまるかを見る
   function checkSpot(id, cell) {
-    uiSelect(id);
+    if (G.sel !== id) uiSelect(id); // もう えらんでいれば そのまま（もう一度押すと回ってしまう）
     const c = cellEl(cell), shown = c && c.classList.contains('lk-good') ? +c.dataset.spot : 0;
     uiPut(id, cell);
     const d = R.derive(G.s), real = d.links.filter(l => l.ok && (l.from === cell || l.to === cell)).length;
@@ -700,6 +711,20 @@
           R.put(s, s.hand[0], 11); renderAll(); checkTips(true); sampleLayout();
           CHECK.stopped = true; writeCheck(); return;
         }
+        if (Q.get('scene') === 'rotate') { // 決まった場面：回す操作3つ（右クリック・R キー・「回す」ボタン）と、もう一度押す
+          const id = s.hand[0], r0 = s.cards[id].rot, want = k => (r0 + k) & 3;
+          const p = () => document.querySelector(`#hand .pc[data-id="${id}"]`);
+          p().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+          if (s.cards[id].rot !== want(1)) miss('右クリックで回らない');
+          if (G.sel != null) miss('右クリックで えらんだことになった');
+          uiSelect(id); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true }));
+          if (s.cards[id].rot !== want(2)) miss('R キーで回らない');
+          $('#btn-rot').click(); if (s.cards[id].rot !== want(3)) miss('「回す」ボタンで回らない');
+          p().click(); if (s.cards[id].rot !== want(4) || G.sel !== id) miss('えらんだブロックを もう一度押しても回らない');
+          // 回したブロックを置くと、回した向きで はまる（盤面の凸の印と計算が同じ）
+          uiPut(id, 6); checkBoardDisplay(); sampleLayout();
+          CHECK.rotateScene = { ok: true, rot: s.cards[id].rot }; CHECK.stopped = true; writeCheck(); return;
+        }
         let L = Bot.search(s, { style });
         if (Q.get('scene') === 'thorn') { // 決まった場面：攻撃ブロックを1個だけ置く（HP1 で狂戦士をなぐると、敵が動く前にトゲで負ける）
           const id = s.hand.find(x => R.B[s.cards[x].type].fam === 'atk'); L = { board: new Array(R.N).fill(null), rots: {} }; if (id != null) L.board[6] = id;
@@ -707,7 +732,11 @@
         R.clearBoard(s); renderAll();
         for (let cell = 0; cell < R.N; cell++) {
           const id = L.board[cell]; if (id == null) continue;
-          if (ROT && L.rots[id] != null) { let g = 0; while (s.cards[id].rot !== L.rots[id] && g++ < 4) R.rotate(s, id); }
+          if (L.rots[id] != null && s.cards[id].rot !== L.rots[id]) { // 人と同じ操作で回す：えらんで、もう一度押す
+            if (G.sel !== id) uiSelect(id);
+            let g = 0; while (s.cards[id].rot !== L.rots[id] && g++ < 4) { clickPiece(id); CHECK.rotates++; }
+            if (s.cards[id].rot !== L.rots[id]) miss(`もう一度押しても回らない（札${id}）`);
+          }
           checkSpot(id, cell);
         }
         checkBoardDisplay(); sampleLayout();
