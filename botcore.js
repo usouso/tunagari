@@ -209,5 +209,5 @@
     return { run, fights, won: run.phase === 'won' };
   }
 
-  return { search, applyLayout, playFight, playRun, scoreOf, evalBoard, lcg };
+  return { search, applyLayout, playFight, playRun, scoreOf, evalBoard, lcg, simPick, simRemove };
 });

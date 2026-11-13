@@ -1,7 +1,7 @@
 /*
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
  * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
- *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &stop=ターン &pick=1 &screen=reward|remove|help|deck|lose
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck
  */
 (function () {
   'use strict';
@@ -521,7 +521,7 @@
     if (run) h += `<h3>さいごのデッキ（${run.deck.length}個）</h3>`;
     const body = openSheet(won ? 'win' : 'lose', h);
     if (run) body.appendChild(deckMinis(run.deck, run.lv));
-    CHECK.result = { phase: won ? 'won' : 'lost', stage: s.stage, turn: s.turn, mode: G.mode };
+    CHECK.result = { phase: won ? 'won' : 'lost', stage: s.stage, turn: s.turn, mode: G.mode, runPhase: run ? run.phase : '' };
     const enemyId = s.enemyId, stage = s.stage;
     body.querySelector('#rs-again').addEventListener('click', () => { G.seed = (G.seed * 7 + 13) % 90000 + 1; if (run) startRun(); else startOne(enemyId, stage); });
     body.querySelector('#rs-same').addEventListener('click', () => startRun());
@@ -535,7 +535,7 @@
       <p>1. 毎ターン、山札から <b>${R.HAND}個</b> 引く。敵の予告を見て、盤面に置く（置き方は、発動するまで何回でも変えられる）。</p>
       <p>2. <b>凸</b>が、となりのブロックの<b>凹</b>に向かい合うと「はまる」。能力は 凸 → 凹 に わたる。わたした側は、自分では働かない。わたさない能力ブロックは、自分で1回 働く（半分の力）。</p>
       <p>3. 受け取ったものは、次のブロックへは わたらない。</p>
-      <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。</p>
+      <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。シールドは、左上の盾の分から先に使う。</p>
       <p>5. ターンの終わりに、手札は全部 捨て札へ。山札がなくなったら、捨て札を切り直す。</p>
       <h3>4つの系統（色と形で分かる）</h3>` +
       ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('') +
@@ -673,11 +673,11 @@
       if (k === 'reward') {
         sampleLayout();
         if (SCREEN === 'reward') { CHECK.stopped = true; writeCheck(); return; }
-        pickReward((autoRand() * 3) | 0);
+        pickReward(Q.get('picks') === 'sim' ? Bot.simPick(G.run, {}) : (autoRand() * 3) | 0); // &picks=sim … ためしてから選ぶ（5戦目まで行く検査用）
       } else if (k === 'remove') {
         sampleLayout();
         if (SCREEN === 'remove') { CHECK.stopped = true; writeCheck(); return; }
-        removeCard(autoRand() < 0.5 ? -1 : (autoRand() * G.run.deck.length) | 0);
+        removeCard(Q.get('picks') === 'sim' ? Bot.simRemove(G.run, {}) : autoRand() < 0.5 ? -1 : (autoRand() * G.run.deck.length) | 0);
       } else if (k === 'win' || k === 'lose') { sampleLayout(); break; }
     }
     CHECK.done = true; writeCheck();

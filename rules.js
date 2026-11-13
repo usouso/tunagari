@@ -64,7 +64,7 @@
     spread:  { fam: 'enh',  name: '拡散',     g: '拡', v: [0], sh: [0, 1, 0, 0],
                txt: () => `能力ブロックに わたすと、その能力が 全部の攻撃・防御ブロックに とどく。` },
     sustain: { fam: 'enh',  name: '持続強化', g: '持', v: [50, 75, 100], sh: [0, 1, 0, 0],
-               txt: v => `盾：シールドが${v}%残る。炎：${v}%残る。毒：へらない。` },
+               txt: v => `盾：その盾のシールドが${v}%残る。炎：${v}%残る。毒：へらない。` },
     convert: { fam: 'enh',  name: '効果変換', g: '変', v: [100, 150, 200], sh: [0, 1, 0, 0],
                txt: v => `攻撃に わたすと、最初のヒットに ＋いまのシールドの${v}%。` },
     refire:  { fam: 'enh',  name: '再発動',   g: '再', v: [0], sh: [0, 1, 0, 0],
@@ -72,9 +72,9 @@
     counter: { fam: 'enh',  name: '反撃',     g: '反', v: [50, 75, 100], sh: [0, 1, 0, 0],
                txt: v => `攻撃に わたすと、敵のヒット1回ごとに その攻撃が ${v}%の力で発動（1ターン${COUNTER_MAX}回まで）。` },
     mirror:  { fam: 'enh',  name: '反射',     g: '鏡', v: [50, 75, 100], sh: [0, 1, 0, 0],
-               txt: v => `盾・堅牢に わたすと、防いだダメージの${v}%を 敵に返す。` },
+               txt: v => `盾・堅牢に わたすと、そのブロックが防いだダメージの${v}%を 敵に返す。` },
     leech:   { fam: 'enh',  name: '吸収',     g: '吸', v: [30, 45, 60], sh: [0, 1, 0, 0],
-               txt: v => `攻撃：与えたヒットダメージの${v}%回復。盾・堅牢：防いだダメージの${v}%回復。` },
+               txt: v => `攻撃：与えたヒットダメージの${v}%回復。盾・堅牢：そのブロックが防いだダメージの${v}%回復。` },
   };
   const TYPES = Object.keys(B);
   const FAMS = { atk: '攻撃', def: '防御', abil: '能力', enh: '強化' };
@@ -196,8 +196,8 @@
     // 4. 働くもの
     const d = {
       blk, links, cells, atk: [], solo: [], order: [],
-      shieldGain: 0, shieldCells: [], tough: 0, toughCells: [], dodge: 0, dodgeCells: [],
-      defGifts: [], reflect: 0, mirrorCells: [], leechDef: 0, shieldKeep: 0,
+      shieldGain: 0, shieldCells: [], shields: [], tough: 0, toughCells: [], toughs: [], dodge: 0, dodgeCells: [],
+      defGifts: [],
       sustain: { poison: false, fire: false }, fireKeep: V('sustain') / 100, retain: [], lv,
     };
     for (const i of cells) {
@@ -210,12 +210,12 @@
         X.atk = a; d.atk.push(a); d.order.push(i);
       } else if (X.fam === 'def') {
         const n = rd(v * mult) * again; X.n = n;
-        if (X.type === 'shield') { d.shieldGain += n; d.shieldCells.push(i); if (m.sustain) d.shieldKeep = V('sustain') / 100; }
-        else if (X.type === 'tough') { d.tough += n; d.toughCells.push(i); }
+        // 反射・吸収・持続強化は、受け取ったブロックが防いだ（のこした）分にだけ効く
+        const own = { cell: i, n, mirror: (m.mirror || 0) * V('mirror') / 100, leech: (m.leech || 0) * V('leech') / 100, keep: m.sustain ? V('sustain') / 100 : 0 };
+        if (X.type === 'shield') { d.shieldGain += n; d.shieldCells.push(i); d.shields.push(own); }
+        else if (X.type === 'tough') { d.tough += n; d.toughCells.push(i); d.toughs.push(own); }
         else { d.dodge += n; d.dodgeCells.push(i); }
         for (const g of X.got) d.defGifts.push({ g, at: i });
-        if (m.mirror) { d.reflect += m.mirror * V('mirror') / 100; d.mirrorCells.push(i); }
-        if (m.leech) d.leechDef += m.leech * V('leech') / 100;
       } else if (X.fam === 'abil') {
         if (m.sustain) d.sustain[X.type] = true;
         if (!X.gives) { X.soloGift = Object.assign({}, X.gift, { amt: Math.ceil(X.gift.amt / 2) }); d.solo.push({ cell: i, gift: X.soloGift, extra: X.got }); d.order.push(i); } // ひとりは半分の力
@@ -262,12 +262,12 @@
       if (a.leech) out.lines.push(`与えたヒットダメージの${rd(a.leech * 100)}%回復`);
       if (a.counter) out.lines.push(`敵のヒット1回ごとに ${rd(a.counterMult * 100)}%の力で発動（${COUNTER_MAX * a.counter}回まで）`);
     } else if (X.fam === 'def') {
-      if (X.type === 'shield') { out.main = `+${X.n}`; out.lines.push(`シールド+${X.n}`); if (m.sustain) out.lines.push(`シールドが${V('sustain')}%残る`); }
+      if (X.type === 'shield') { out.main = `+${X.n}`; out.lines.push(`シールド+${X.n}`); if (m.sustain) out.lines.push(`この盾のシールドが${V('sustain')}%残る`); }
       else if (X.type === 'tough') { out.main = `−${X.n}`; out.lines.push(`敵のヒット1回ごとに −${X.n}`); }
       else { out.main = `${X.n}回`; out.lines.push(`敵の最初のヒットを ${X.n}回 よける`); }
       for (const g of X.got) out.lines.push(`敵のヒット1回ごとに ${giftText(g)}`);
-      if (m.mirror) out.lines.push(`防いだダメージの${m.mirror * V('mirror')}%を返す`);
-      if (m.leech) out.lines.push(`防いだダメージの${m.leech * V('leech')}%回復`);
+      if (m.mirror) out.lines.push(`このブロックが防いだダメージの${m.mirror * V('mirror')}%を返す`);
+      if (m.leech) out.lines.push(`このブロックが防いだダメージの${m.leech * V('leech')}%回復`);
     } else if (X.fam === 'abil') {
       out.main = shortGift(X.gives ? X.gift : X.soloGift);
       if (X.gives) {
@@ -491,6 +491,19 @@
     const hurtEnemy = n => { e.hp -= n; if (e.hp <= 0 && !over) { over = true; s.phase = 'won'; } };
     const hurtPlayer = n => { p.hp -= n; st.taken += n; if (p.hp <= 0 && !over) { over = true; s.phase = 'lost'; } };
     const healPlayer = n => { const h = Math.max(0, Math.min(p.max - p.hp, n)); p.hp += h; st.healed += h; return h; };
+    // シールドは「どの盾の分か」を分けて持つ。使う順は、前のターンから残った分 → 左上の盾から。
+    // （反射・吸収・持続強化が、受け取った盾の分にだけ効くようにするため。p.shield は いつも合計）
+    const pools = []; if (p.shield > 0) pools.push({ cell: -1, amt: p.shield, mirror: 0, leech: 0, keep: 0 });
+    function absorb(n, acc) { // シールドで n まで防ぐ。防いだ量を返す
+      let left = n;
+      for (const q of pools) {
+        if (left <= 0) break;
+        const a = Math.min(q.amt, left); if (a <= 0) continue;
+        q.amt -= a; left -= a;
+        if (acc) { acc.reflect += a * q.mirror; acc.leech += a * q.leech; if (q.mirror > 0 && acc.cells.indexOf(q.cell) < 0) acc.cells.push(q.cell); }
+      }
+      p.shield -= n - left; return n - left;
+    }
 
     // ヒット1回。 cell … 打ったブロック、 src … もとになったブロック（追撃なら追撃ブロック）
     function hit(cell, base, kind, src, pierce, leech, bonus) {
@@ -512,7 +525,7 @@
       if (leech > 0 && dmg > 0 && p.hp > 0) heal = healPlayer(rd(dmg * leech));
       snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, armorCut, guardCut, heal });
       if (!over && e.thorns > 0) {
-        let t = e.thorns; const sc = Math.min(p.shield, t); p.shield -= sc; t -= sc; st.blocked += sc;
+        let t = e.thorns; const sc = absorb(t, null); t -= sc; st.blocked += sc;
         if (t > 0) hurtPlayer(t);
         snap({ t: 'thorn', dmg: t, shield: sc });
       }
@@ -553,7 +566,10 @@
     }
 
     // 1 防御
-    if (d.shieldGain > 0) { p.shield += d.shieldGain; snap({ t: 'shield', add: d.shieldGain, cells: d.shieldCells }); }
+    if (d.shieldGain > 0) {
+      for (const sh of d.shields) pools.push({ cell: sh.cell, amt: sh.n, mirror: sh.mirror, leech: sh.leech, keep: sh.keep });
+      p.shield += d.shieldGain; snap({ t: 'shield', add: d.shieldGain, cells: d.shieldCells });
+    }
     // 2 攻撃と、自分で働く能力（左上から順）
     for (const c of d.order) {
       if (over) break;
@@ -570,14 +586,19 @@
       for (const part of it.parts) {
         if (over) break;
         if (part.k === 'atk') {
-          let prevented = 0; attacked = true;
+          const acc = { reflect: 0, leech: 0, cells: [] }; attacked = true;
           for (let h = 0; h < part.hits && !over; h++) {
             if (dodgeLeft > 0) { dodgeLeft--; snap({ t: 'ehit', dodged: true, cells: d.dodgeCells, dmg: 0, raw: part.dmg }); }
             else {
               let dmg = part.dmg;
               const ic = e.frozen ? dmg - Math.ceil(dmg / 2) : 0; dmg -= ic;
-              const tc = Math.min(dmg, d.tough); dmg -= tc;
-              const sc = Math.min(p.shield, dmg); p.shield -= sc; dmg -= sc; prevented += tc + sc;
+              let tc = 0;
+              for (const tg of d.toughs) {
+                const a = Math.min(dmg, tg.n); if (a <= 0) continue;
+                dmg -= a; tc += a; acc.reflect += a * tg.mirror; acc.leech += a * tg.leech;
+                if (tg.mirror > 0 && acc.cells.indexOf(tg.cell) < 0) acc.cells.push(tg.cell);
+              }
+              const sc = absorb(dmg, acc); dmg -= sc;
               st.blocked += ic + tc + sc;
               if (dmg > 0) hurtPlayer(dmg);
               snap({ t: 'ehit', dmg, raw: part.dmg, ice: ic, tough: tc, shield: sc });
@@ -590,11 +611,8 @@
               if (u < COUNTER_MAX * a.counter && !over) { cUses[a.cell] = u + 1; fire(a, a.counterMult, 'counter'); }
             }
           }
-          if (!over && prevented > 0 && d.reflect > 0) {
-            const r = rd(prevented * d.reflect);
-            credit('mirror', r); hurtEnemy(r); snap({ t: 'reflect', dmg: r, cells: d.mirrorCells });
-          }
-          if (!over && prevented > 0 && d.leechDef > 0) { const h = healPlayer(rd(prevented * d.leechDef)); if (h > 0) snap({ t: 'pheal', n: h }); }
+          if (!over && rd(acc.reflect) > 0) { const r = rd(acc.reflect); credit('mirror', r); hurtEnemy(r); snap({ t: 'reflect', dmg: r, cells: acc.cells }); }
+          if (!over && acc.leech > 0) { const h = healPlayer(rd(acc.leech)); if (h > 0) snap({ t: 'pheal', n: h }); }
         } else if (part.k === 'guard') { e.guard = part.n; snap({ t: 'guard', n: part.n }); }
         else if (part.k === 'seal') { s.sealNext += part.n; snap({ t: 'seal', n: part.n }); }
         else if (part.k === 'destroy') {
@@ -617,7 +635,7 @@
     if (!over) {
       if (e.regen > 0 && e.hp < e.max) { const n = Math.min(e.max - e.hp, e.regen); e.hp += n; snap({ t: 'eregen', n }); }
       p.charge += p.chargeNext; p.chargeNext = 0;
-      p.shield = Math.floor(p.shield * d.shieldKeep);
+      p.shield = pools.reduce((a, q) => a + Math.floor(q.amt * q.keep), 0); // 持続強化を受け取った盾の分だけ残る
       // 手札を全部 捨て札へ。再発動のブロックは山札のいちばん上へ。破壊されたブロックは、この戦いから消える。
       const keep = [];
       for (const id of s.hand) {

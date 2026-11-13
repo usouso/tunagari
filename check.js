@@ -5,7 +5,7 @@
  *         node check.js quick    （少なめ）
  *         node check.js only=文字 （名前にその文字が入る場面だけ。全体の合格には数えない）
  * 失敗にするもの（終了コード1）:
- *   ページのエラー / 決着まで行かない / 表示と計算のずれ（はまっている凸・番号・札の字・予想・HP）/ 予想と結果のずれ / 演出の合計と計算のずれ /
+ *   ページのエラー / 決着まで行かない / 「クリアまで」の場面で5戦目まで勝ち切れない / 表示と計算のずれ（はまっている凸・番号・札の字・予想・HP）/ 予想と結果のずれ / 演出の合計と計算のずれ /
  *   「はまるマスの数字」と置いたあとの本当の数のずれ / 文字の重なり / 画面からのはみ出し / 文字の切れ / パソコン寸法でのページのスクロール
  * 画面の写真は screenshots/ に保存する。
  * 注意: これは自動プレイの検査。人が実際にクリック・ドラッグして通す確認は別（REPORT.md を見る）。
@@ -55,7 +55,9 @@ async function main() {
   for (const [sn, w, h, pc] of SIZES) {
     const main = sn === 'pc1366', lite = sn === 'pc1366x768' || sn === 'pc1024';
     add(sn, w, h, pc, 'タイトル', 'auto=1&screen=title&seed=11', { stop: true, shot: 'title' });
-    add(sn, w, h, pc, '5連戦 種11 通し', 'auto=1&speed=0&seed=11', { play: true, shot: 'result' });
+    add(sn, w, h, pc, '5連戦 種11（決着まで。途中で負けてもよい）', 'auto=1&speed=0&seed=11', { play: true, shot: 'result' });
+    // 5戦目まで勝ち切る場面（ごほうびを ためしてから選ぶ。種2 は node で勝つことを確かめてある）。戦い5・5戦目・クリアの画面まで見る
+    if (!lite || sn === 'pc1024') add(sn, w, h, pc, '5連戦 種2 クリアまで（5戦ぜんぶ）', 'auto=1&speed=0&seed=2&picks=sim', { play: true, clear: true, shot: 'clear' });
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
@@ -65,7 +67,8 @@ async function main() {
     add(sn, w, h, pc, '山札を見る', 'auto=1&speed=0&seed=11&stop=2&screen=deck', { stop: true, screen: 'deck', shot: 'deck' });
     add(sn, w, h, pc, 'でたらめ置き（負けの画面）', 'auto=1&speed=0&seed=11&bot=random', { play: true, lose: true, shot: 'lose' });
     if (main) {
-      if (!quick) for (const seed of [222, 3333]) add(sn, w, h, pc, `5連戦 種${seed} 通し`, `auto=1&speed=0&seed=${seed}`, { play: true });
+      if (!quick) for (const seed of [222, 3333]) add(sn, w, h, pc, `5連戦 種${seed}（決着まで。途中で負けてもよい）`, `auto=1&speed=0&seed=${seed}`, { play: true });
+      if (!quick) add(sn, w, h, pc, '5連戦 種3 クリアまで（5戦ぜんぶ）', 'auto=1&speed=0&seed=3&picks=sim', { play: true, clear: true });
       for (const id of (quick ? ['mage'] : ENEMIES)) add(sn, w, h, pc, `れんしゅう ${id}（3戦目の強さ）`, `auto=1&speed=0&seed=11&enemy=${id}&stage=2`, { play: true, shot: 'one-' + id });
       add(sn, w, h, pc, '回せる設定（?rot=1）通し', 'auto=1&speed=0&seed=11&rot=1', { play: true });
     }
@@ -73,7 +76,7 @@ async function main() {
   const only = (process.argv.find(a => a.startsWith('only=')) || '').slice(5);
   if (only) { const keep = cases.filter(c => c.name.indexOf(only) >= 0); cases.length = 0; cases.push(...keep); }
   if (!cases.length) { console.log(`✗ only=${only} に合う場面が1つもない（何も検査していないので、失敗にする）`); server.close(); process.exit(1); }
-  let fail = 0, n = 0; const total = { turns: 0, links: 0, spots: 0, fights: 0 };
+  let fail = 0, n = 0; const total = { turns: 0, links: 0, spots: 0, fights: 0, clears: 0 };
   for (const c of cases) {
     n++;
     const win = c.pc ? `--window-size=${c.w + DW},${c.h + DH}` : `--window-size=${500 + DW},${c.h + DH}`;
@@ -86,6 +89,8 @@ async function main() {
       if (c.play && !(k.done && k.result && (k.result.phase === 'won' || k.result.phase === 'lost'))) bad.push('決着まで行かなかった');
       if (c.stop && !k.stopped) bad.push('止まる所まで行かなかった');
       if (c.lose && !(k.result && k.result.phase === 'lost')) bad.push('負けの画面を確かめられなかった（負けなかった）');
+      if (c.clear && !(k.result && k.result.phase === 'won' && k.result.runPhase === 'won' && k.result.stage === 4 && k.fights === 5 && k.screens.win > 0 && k.screens.reward >= 8 && k.screens.remove >= 4)) bad.push(`5戦目まで勝ち切れなかった（戦い${k.fights}、${k.result ? k.result.phase + ' ' + (k.result.stage + 1) + '戦目' : '結果なし'}）`);
+      if (c.clear) total.clears++;
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
       if (c.screen && !(k.screens && k.screens[c.screen] > 0)) bad.push(`「${c.screen}」の画面が開いていない`);
@@ -111,6 +116,8 @@ async function main() {
   server.close();
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* 残っても害はない */ }
   console.log(`\nくらべた回数: 戦い ${total.fights} / ターン ${total.turns}（予想＝結果、演出の合計＝計算、HPの表示）/ 盤面の絵 ${total.links} / はまるマスの数字 ${total.spots}`);
+  if (!only && !(total.clears > 0)) { console.log('✗ 5戦目まで勝ち切る場面が、1つも回っていない（検査が足りない）'); fail++; }
+  console.log(`5戦目まで勝ち切る場面: ${total.clears}`);
   console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }
