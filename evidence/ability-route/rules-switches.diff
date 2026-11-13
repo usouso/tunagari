@@ -1,0 +1,95 @@
+diff --git a/rules.js b/rules.js
+index 699ee27..d8f2a82 100644
+--- a/rules.js
++++ b/rules.js
+@@ -15,6 +15,7 @@
+   if (typeof module === 'object' && module.exports) module.exports = factory();
+   else root.Rules = factory();
+ })(typeof self !== 'undefined' ? self : this, function () {
++  const DIV = +(process.env.DIV || 3);
+   const W = 5, H = 4, N = W * H, HAND = 7, MAXHP = 100;
+   const SHOCK_AT = 8, SHOCK_DMG = 10, FREEZE_AT = 8, COUNTER_MAX = 2, HIT_CAP = 200;
+   const STAGES = 5, PICKS = 2, HEAL_AFTER = 20;
+@@ -215,6 +216,7 @@
+     for (const i of cells) {
+       const A = blk[i]; if (A.fam !== 'abil') continue;
+       A.gift = giftOf(A);
++      if (s.__force && s.__force.from === i) { A.gives = true; blk[s.__force.to].got.push(A.gift); continue; }
+       if (!A.gives) continue;
+       for (const ln of A.outs) if (ln.ok) blk[ln.to].got.push(A.gift);
+       for (const t of A.spreadTo) blk[t].got.push(A.gift);
+@@ -526,12 +528,14 @@
+         if (left <= 0) break;
+         const a = Math.min(q.amt, left); if (a <= 0) continue;
+         q.amt -= a; left -= a;
++        if (acc && acc.who) { acc.who.push(q.cell); acc.amt[q.cell] = (acc.amt[q.cell] || 0) + a; }
+         if (acc) { acc.reflect += a * q.mirror; acc.leech += a * q.leech; if (q.mirror > 0 && acc.cells.indexOf(q.cell) < 0) acc.cells.push(q.cell); }
+       }
+       p.shield -= n - left; return n - left;
+     }
+ 
+     // ヒット1回。 cell … 打ったブロック、 src … もとになったブロック（追撃なら追撃ブロック）
++    let lastDmg = 0, weak = 0;
+     function hit(cell, base, kind, src, pierce, leech, bonus) {
+       if (over || hits >= HIT_CAP) return false;
+       hits++;
+@@ -550,15 +554,17 @@
+       let heal = 0;
+       if (leech > 0 && dmg > 0 && p.hp > 0) heal = healPlayer(rd(dmg * leech));
+       snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, armorCut, guardCut, heal });
++      var landed = dmg > 0; lastDmg = dmg;
+       if (!over && e.thorns > 0) {
+         let t = e.thorns; const sc = absorb(t, null); t -= sc; st.blocked += sc; // トゲを防いだ分は、反射・吸収に数えない（文は「敵の攻撃を防いだ分」）
+         if (t > 0) hurtPlayer(t);
+         snap({ t: 'thorn', dmg: t, shield: sc });
+       }
+-      return true;
++      return s.__v === 1 ? landed : true;
+     }
+     // 能力を1回（times 回）使う。 at … 働いたブロック（攻撃・防御・自分）
+-    function use(g, at) {
++    function use(g, at, size) {
++      if (s.__v === 3 && g.kind === 'ice' && size != null) g = Object.assign({}, g, { amt: Math.round(size * g.amt / 4) });
+       for (let k = 0; k < g.times && !over; k++) {
+         if (g.kind === 'poison') { e.poison += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt }); }
+         else if (g.kind === 'fire') { e.fire += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt }); }
+@@ -587,7 +593,7 @@
+       snap({ t: 'fire', cell: a.cell, mode, mult });
+       for (let i = 0; i < a.hits && !over; i++) {
+         const ok = hit(a.cell, (a.dmg + (i === 0 ? p.shield * a.convert : 0)) * mult, 'atk', a.cell, a.pierce, a.leech, a.bonus);
+-        if (ok) for (const g of a.gifts) { if (over) break; use(g, a.cell); }
++        if (ok) for (const g of a.gifts) { if (over) break; use(g, a.cell, lastDmg); }
+       }
+     }
+ 
+@@ -614,14 +620,15 @@
+         if (part.k === 'atk') {
+           const acc = { reflect: 0, leech: 0, cells: [] }; attacked = true;
+           for (let h = 0; h < part.hits && !over; h++) {
+-            if (dodgeLeft > 0) { dodgeLeft--; snap({ t: 'ehit', dodged: true, cells: d.dodgeCells, dmg: 0, raw: part.dmg }); }
++            acc.who = []; acc.amt = {};
++            if (dodgeLeft > 0) { acc.who = d.dodgeCells.slice(); for (const dc of d.dodgeCells) acc.amt[dc] = part.dmg; dodgeLeft--; snap({ t: 'ehit', dodged: true, cells: d.dodgeCells, dmg: 0, raw: part.dmg }); }
+             else {
+-              let dmg = part.dmg;
++              let dmg = Math.max(0, part.dmg - weak);
+               const ic = e.frozen ? dmg - Math.ceil(dmg / 2) : 0; dmg -= ic;
+               let tc = 0;
+               for (const tg of d.toughs) {
+                 const a = Math.min(dmg, tg.n); if (a <= 0) continue;
+-                dmg -= a; tc += a; acc.reflect += a * tg.mirror; acc.leech += a * tg.leech;
++                dmg -= a; tc += a; acc.who.push(tg.cell); acc.amt[tg.cell] = (acc.amt[tg.cell] || 0) + a; acc.reflect += a * tg.mirror; acc.leech += a * tg.leech;
+                 if (tg.mirror > 0 && acc.cells.indexOf(tg.cell) < 0) acc.cells.push(tg.cell);
+               }
+               const sc = absorb(dmg, acc); dmg -= sc;
+@@ -630,7 +637,10 @@
+               snap({ t: 'ehit', dmg, raw: part.dmg, ice: ic, tough: tc, shield: sc });
+             }
+             // 防御ブロックが受け取った能力：敵のヒット1回ごとに
+-            for (const x of d.defGifts) { if (over) break; use(x.g, x.at); }
++            for (const x of d.defGifts) { if (over) break; if (s.__v === 1 && acc.who.indexOf(x.at) < 0) continue;
++              if (s.__v === 2) { x.bank = (x.bank || 0) + (acc.amt[x.at] || 0); while (x.bank >= DIV && !over) { x.bank -= DIV; use(x.g, x.at); } continue; }
++              if (s.__v === 4 && x.g.kind === 'poison') { weak += Math.ceil(x.g.amt * (+process.env.WK || 0.5)) * x.g.times; continue; }
++              use(x.g, x.at, s.__v === 3 ? (acc.amt[x.at] || 0) : undefined); }
+             // 反撃
+             if (!over) for (const a of d.atk) if (a.counter) {
+               const u = cUses[a.cell] || 0;
