@@ -662,7 +662,11 @@
     if (!els.length) return;
     for (const x of (all1 ? els : [els[CHECK.tipChecks % els.length]])) {
       const want = R.termText(x.dataset.tip, D());
-      showTip(x);
+      showTip(null);
+      // 本物のカーソルと同じ道すじ：ことばの まん中に当たる部品をさがし、そこへ pointermove を送る（showTip を直接 呼ばない）
+      const q = x.getClientRects()[0], cx = q.left + q.width / 2, cy = q.top + q.height / 2, hit = document.elementFromPoint(cx, cy); // 2行に折れた ことば は、1行目のまん中で見る
+      if (!hit || hit.closest('[data-tip]') !== x) { miss(`カーソルが当たらない ことば（${x.dataset.tip}）`); continue; }
+      hit.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx, clientY: cy }));
       const box = $('#tip'), r = box.getBoundingClientRect();
       if (box.hidden || box.textContent !== want.name + want.text) miss(`説明の文がちがう（${x.dataset.tip}）`);
       if (r.left < 0 || r.top < 0 || r.right > window.innerWidth + 1 || r.bottom > window.innerHeight + 1) miss(`説明の箱が画面からはみ出す（${x.dataset.tip} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}）`);
