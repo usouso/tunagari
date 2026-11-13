@@ -389,9 +389,9 @@
       case 'solo': fxCell(e.cell); return 110;
       case 'hit': {
         const nm = e.kind === 'chase' ? '追撃' : nameAt(e.cell);
-        if (e.dodged) { slot('#enemy-dmg', 'よけられた', `このターン 合計 ${G.turnSum.e}`); log('lp', `${nm}：よけられた`); sfx('bad'); return 200; }
+        if (e.dodged) { slot('#enemy-dmg', 'よけられた', `合計 ${G.turnSum.e}`); log('lp', `${nm}：よけられた`); sfx('bad'); return 200; }
         G.turnSum.e += e.dmg;
-        slot('#enemy-dmg', `−${e.dmg}`, `このターン 合計 ${G.turnSum.e}`);
+        slot('#enemy-dmg', `−${e.dmg}`, `合計 ${G.turnSum.e}`);
         const ex = []; if (e.charge) ex.push(`たまり+${e.charge}`); if (e.fire) ex.push(`炎+${e.fire}`); if (e.armorCut) ex.push(`装甲−${e.armorCut}`); if (e.guardCut) ex.push(`結界−${e.guardCut}`); if (e.heal) ex.push(`HP+${e.heal}`);
         log('lp', `${nm}：${e.dmg}ダメージ` + (ex.length ? `（${ex.join('、')}）` : ''));
         const pt2 = $('#enemy-portrait'); pt2.classList.remove('fx-hit'); void pt2.offsetWidth; pt2.classList.add('fx-hit');
@@ -436,7 +436,7 @@
   async function doEnd() {
     if (G.busy || !G.s || G.s.phase !== 'place') return;
     const s = G.s, f = R.forecast(s), turn = s.turn, e0 = s.stats.total, p0 = s.stats.taken;
-    G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {};
+    G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {}; G.lastIntent = s.intent.label; // 負けの画面に出す「さいごの敵の行動」
     const ev = R.endTurn(s);
     G.busy = true; G.turnSum = { e: 0, p: 0 }; G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen], pc: G.pre.p.curse, ch: G.pre.p.charge };
     renderAll();
@@ -649,7 +649,6 @@
     while (guard++ < 400) {
       const s = G.s;
       if (s.phase === 'place') {
-        G.lastIntent = s.intent.label;
         const L = Bot.search(s, { style });
         R.clearBoard(s); renderAll();
         for (let cell = 0; cell < R.N; cell++) {

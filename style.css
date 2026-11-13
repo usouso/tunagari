@@ -245,6 +245,16 @@ a { color: inherit; }
   .pc .ord { min-width: 16px; height: 16px; font-size: 11px; padding: 0 3px; top: 8%; right: 8%; }
   .mini { width: 54px; height: 54px; } .mini .pc { --ps: 54px; }
 }
+/* せまいパソコンの窓（901〜1250px）：左右の列を細くして、盤面を大きく保つ */
+@media (min-width: 901px) and (max-width: 1250px) {
+  :root { --cell: min(calc((100vh - 170px) / 5), calc((100vw - 530px) / 7), 150px); }
+  #battle { grid-template-columns: minmax(210px, 1fr) auto minmax(210px, 1fr); gap: 8px; padding: 8px; }
+  #top { gap: 10px; padding: 0 10px; }
+  #logo .sub { display: none; }
+  .tool input[type=range] { width: 60px; }
+  #title-rules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecard .et { font-size: 13px; }
+}
 @media (min-width: 901px) and (max-height: 720px) {
   .panel { padding: 6px 10px; } #left, #right { gap: 6px; }
   #enemy-portrait { width: 52px; height: 52px; font-size: 27px; }

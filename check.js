@@ -48,12 +48,12 @@ async function main() {
   const pk = read(probe.stdout) || { w: 1000, h: 800 };
   const DW = 1000 - pk.w, DH = 800 - pk.h;
   console.log(`窓と中身の差: 幅${DW} 高さ${DH}`);
-  const SIZES = [['pc1366', 1366, 650, true], ['pc1920', 1920, 910, true], ['phone', 375, 812, false], ['pc1366x768', 1366, 768, true]];
+  const SIZES = [['pc1366', 1366, 650, true], ['pc1920', 1920, 910, true], ['phone', 375, 812, false], ['pc1366x768', 1366, 768, true], ['pc1024', 1024, 768, true]]; // pc1024 … せまい窓（アプリ内ブラウザーの大きさ）
   const ENEMIES = ['golem', 'hunter', 'hydra', 'mage', 'berserk'];
   const cases = [];
   const add = (sn, w, h, pc, name, q, o) => cases.push(Object.assign({ name: `${sn} ${name}`, sn, w, h, pc, q }, o || {}));
   for (const [sn, w, h, pc] of SIZES) {
-    const main = sn === 'pc1366', lite = sn === 'pc1366x768';
+    const main = sn === 'pc1366', lite = sn === 'pc1366x768' || sn === 'pc1024';
     add(sn, w, h, pc, 'タイトル', 'auto=1&screen=title&seed=11', { stop: true, shot: 'title' });
     add(sn, w, h, pc, '5連戦 種11 通し', 'auto=1&speed=0&seed=11', { play: true, shot: 'result' });
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
