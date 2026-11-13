@@ -165,6 +165,20 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   const fc = R.forecast(mk([['poison', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 3)] })));
   eq('攻め・守り版も 予想＝結果', [fc.taken, fc.dealt], [d1.taken, d1.dealt]);
   ok('弱る の ことばの説明がある', !!R.termText('frail') && R.termText('frail').name === '弱る');
+  { // 組み合わせ（Codex の指摘3）：能力の輪・封印・再発動
+    // 能力4個の輪（0→5→6→1→0。炎・追撃は 凹が凸の左まわり となり）
+    const ringS = mk([['fire', 1, 0], ['chase', 0, 5], ['fire', 3, 6], ['chase', 2, 1]], AB), ring = R.derive(ringS);
+    eq('能力4個の輪が できている（はまり4つ）', ring.links.length, 4);
+    ok('攻め・守り版でも 能力の輪で計算が終わり、だれかは自分で働く', ring.order.length >= 1 && R.forecast(ringS) != null);
+    const g = go([['regen', 0, 5], ['poison', 0, 6]], AB); // 再生→毒（ひとり）。毒は 攻め（毒+1）、受け取った再生も 攻め（たまり+2）
+    eq('再生→毒（ひとり）：毒は攻めの半分、受け取った再生は攻め（たまり）', [g.gifts('poison'), g.s.p.charge, g.gifts('regen')], [1, 2, 0]);
+    const sl = R.derive(mk([['pierce', 1, 1], ['shield', 0, 6]], { sealed: [0] }));
+    eq('封印された強化は はまらない（小さく効くも起きない）', [sl.links.length, sl.blk[6].m.weak || 0], [0, 0]);
+    const rf = R.derive(mk([['refire', 1, 1], ['shield', 0, 6]]));
+    eq('再発動は どれにでも書いてあるとおり（小さく効くではない）', [rf.links[0].ok, !!rf.links[0].weak, rf.retain.length], [true, false, 1]);
+    const cl = go([], ab({ parts: [{ k: 'cleanse' }], e: { frail: 4, poison: 2, frozen: 1 } }));
+    eq('脱皮の出来事に、消えた状態の名前が入る（きろくの文に使う）', cl.ev.find(x => x.t === 'cleanse').gone, ['毒', '弱る', '凍結']);
+  }
   eq('追撃は 弱るも「状態1種類」に数える（ひとり：1×(1+1) = 2）', go([['chase', 1, 1]], ab({ e: { frail: 2 } })).dealt, 2);
 }
 

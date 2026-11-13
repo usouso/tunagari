@@ -6,7 +6,6 @@
  *   node bot.js adapt      … 「敵に合わせて置き方が変わるか」：同じ手札で、敵だけ変えたときの いちばん良い置き方のちがい
  *   node bot.js use        … ブロックの使われ方（能力を 攻撃／防御 に わたした・自分で働いた の割合を、敵ごとに）
  *   node bot.js picks      … ごほうびのブロックごとに、取った周回と取らなかった周回の成績
- *   node bot.js rot        … 回せる（?rot=1）と回せないの くらべ
  *   node bot.js hand       … 引く数 5・6・7・8 の くらべ
  *   オプション: n=<回数>  pick=random|sim|none
  * 前提: ボットは1ターン先しか読まない（置き方は ていねいに さがす）。人より計算は正確だが、先の計画は下手。
@@ -151,22 +150,6 @@ function picks() {
     console.log(`  ${pad(R.B[type].name, 10)} 取った ${f1(t[type].with)}戦（${String(t[type].n).padStart(3)}回） 取らない ${f1(t[type].without)}戦  差 ${(t[type].with - t[type].without >= 0 ? '+' : '') + (t[type].with - t[type].without).toFixed(2)}`);
 }
 
-function rot() {
-  const n = NN || 40;
-  console.log(`回せる・回せないの くらべ（smart、ごほうびは でたらめ、5連戦 ${n}回）`);
-  for (const r of [false, true]) {
-    let st = 0, wins = 0, links = 0, turns = 0, idle = 0, enh = 0, dmg = 0;
-    for (let seed = 1; seed <= n; seed++) {
-      const x = Bot.playRun(seed, { style: 'smart', pick: 'random', rot: r, restarts: r ? 2 : 3, onTurn: s => {
-        const d = R.derive(s); turns++; links += d.links.filter(l => l.ok).length;
-        for (const c of d.cells) if (d.blk[c].fam === 'enh') { enh++; if (!d.blk[c].live) idle++; }
-      } });
-      if (x.won) wins++; st += x.fights.filter(f => f.won).length; dmg += x.fights.reduce((a, f) => a + f.total, 0);
-    }
-    console.log(`${r ? '回せる  ' : '回せない'} クリア ${pct(wins, n)} 戦 ${f1(st / n)}  1ターンに はまった数 ${f1(links / turns)}  強化が働かなかった ${pct(idle, enh)}  1ターンの与ダメージ ${f1(dmg / turns)}`);
-  }
-}
-
 function hand() {
   const n = NN || 40;
   console.log(`引く数の くらべ（smart、ごほうびは でたらめ、5連戦 ${n}回）`);
@@ -178,5 +161,5 @@ function hand() {
 }
 
 const t0 = Date.now();
-({ runs, stage, adapt, use, picks, rot, hand }[cmd] || runs)();
+({ runs, stage, adapt, use, picks, hand }[cmd] || runs)();
 console.log(`（${((Date.now() - t0) / 1000).toFixed(1)}秒）`);

@@ -21,7 +21,7 @@
     speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), seed: Q.has('seed') ? (+Q.get('seed') | 0) : ((Date.now() % 90000) + 1),
     turnSum: { e: 0, p: 0 }, gone: {},
   };
-  const CHECK = { rotates: 0, turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
+  const CHECK = { rotates: 0, weakLinks: 0, faceGifts: 0, turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
                   layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
   window.__check = CHECK; window.__G = G;
   window.addEventListener('error', e => CHECK.errors.push(String(e.message)));
@@ -434,6 +434,7 @@
         sfx('hit', e.dmg); return 230;
       }
       case 'gift': {
+        if (e.src && e.src !== e.kind) CHECK.faceGifts++; // 攻め・守り版で、もう1つの顔（弱る・たまり）が働いた
         fxCell(e.cell);
         const nm = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', regen: 'HP', charge: 'たまり', frail: '弱る' }[e.kind];
         if (e.kind === 'regen') { if (e.n > 0) slot('#player-dmg', `+${e.n}`, '回復', 'heal'); else return 60; } // HPが満タンのときは、きろくに書かない
@@ -459,7 +460,7 @@
         for (const c of e.cells) { const p = cellEl(c) && cellEl(c).querySelector('.pc'); if (p) p.classList.add('fx-break'); }
         log('le', e.cells.length ? `　破壊：${e.cells.map(nameAt).join('、')} が この戦いから消えた` : '　破壊：はまっているブロックがなく、何も こわれなかった'); sfx('bad'); return 520;
       case 'rubble': log('le', `　がれき：次のターン、${e.cells.length}マスに置けない`); return 260;
-      case 'cleanse': log('le', '　脱皮：毒・炎・氷・雷が消えた'); return 260;
+      case 'cleanse': log('le', e.gone && e.gone.length ? `　脱皮：${e.gone.join('・')}が消えた` : '　脱皮：消す状態は なかった'); return 260;
       case 'cursed': log('le', `　呪い+${e.n}`); return 200;
       case 'tick': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '毒'); log('lp', `毒：${e.dmg}ダメージ`); return 240;
       case 'curse': G.turnSum.p += e.dmg; slot('#player-dmg', `−${e.dmg}`, '呪い'); log('le', `呪い：${e.dmg}ダメージ`); return 240;
@@ -652,8 +653,9 @@
   // 盤面の絵（はまっている凸・効く・小さく効く・番号・札の字・働いていない印）が、計算と同じか
   function checkBoardDisplay() {
     const s = G.s, d = R.derive(s);
-    const want = d.links.map(l => `${l.from}-${l.to}:${l.ok ? 1 : 0}`).sort().join(' ');
-    const got = [...document.querySelectorAll('#board .pc-tab[data-link]')].map(t => `${t.dataset.link}:${t.dataset.ok}`).sort().join(' ');
+    const want = d.links.map(l => `${l.from}-${l.to}:${l.ok ? 1 : 0}${l.weak ? 'w' : ''}`).sort().join(' ');
+    const got = [...document.querySelectorAll('#board .pc-tab[data-link]')].map(t => `${t.dataset.link}:${t.dataset.ok}${t.classList.contains('wk') ? 'w' : ''}`).sort().join(' ');
+    CHECK.weakLinks += d.links.filter(l => l.weak).length;
     if (want !== got) miss(`はまっている凸 画面[${got}] 計算[${want}]`);
     for (const c of d.cells) {
       const p = cellEl(c).querySelector('.pc'), sum = R.summary(d, c);

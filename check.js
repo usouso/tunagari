@@ -61,7 +61,7 @@ async function main() {
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
-    if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版（?abil=1）5連戦 種11', 'auto=1&speed=0&seed=11&abil=1', { play: true, shot: 'abil' });
+    if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版（?abil=1）5連戦 種11', 'auto=1&speed=0&seed=11&abil=1', { play: true, abil: true, shot: 'abil' });
     add(sn, w, h, pc, '回す操作（右クリック・R・ボタン・もう一度押す）', 'auto=1&speed=0&seed=11&scene=rotate', { stop: true, rotate: true });
     add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
     if (lite) continue;
@@ -100,6 +100,8 @@ async function main() {
       if (c.early && !(k.result && k.result.lastAct === null && /敵が動く前に負けた/.test(k.result.lastText || ''))) bad.push(`敵が動く前に負けたのに、負けの画面の文がちがう（${k.result ? k.result.lastText : ''}）`);
       if (c.lose && !c.early && !(k.result && k.result.lastAct && (k.result.lastText || '').indexOf('さいごの敵の行動：' + k.result.lastAct) >= 0)) bad.push(`負けの画面に「さいごの敵の行動」が出ていない（${k.result ? k.result.lastText : ''}）`);
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
+      if (c.abil && !(k.faceGifts > 0)) bad.push('攻め・守り版なのに、弱る・たまり（もう1つの顔）が1回も働かなかった');
+      total.weakLinks = (total.weakLinks || 0) + (k.weakLinks || 0);
       if (c.rotate && !(k.rotateScene && k.rotateScene.ok)) bad.push('回す操作の場面が最後まで行かなかった');
       if (c.play && !c.lose && !(k.rotates > 0)) bad.push('通しで、もう一度押して回す操作が1回も起きなかった');
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
@@ -134,6 +136,8 @@ async function main() {
   const needTerms = Object.keys(require('./rules.js').TERMS), lackTerms = needTerms.filter(key => !total.tipSeen[key]);
   console.log(`ことばの説明を出してくらべた回数: ${total.tips}（出した ことば ${Object.keys(total.tipSeen).length} / ${needTerms.length}: ${Object.keys(total.tipSeen).sort().join(' ')}）`);
   if (!only && lackTerms.length) { console.log(`✗ 説明を1回も出していない ことば がある: ${lackTerms.join(' ')}（検査が足りない）`); fail++; }
+  console.log(`小さく効く（点線の凸）を盤面の絵とくらべた数: ${total.weakLinks || 0}`);
+  if (!only && !(total.weakLinks > 0)) { console.log('✗ 小さく効く が1回も盤面に出なかった（検査が足りない）'); fail++; }
   console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }

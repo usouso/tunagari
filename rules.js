@@ -663,7 +663,10 @@
           for (const id of ids) { s.gone.push(id); s.hand = s.hand.filter(x => x !== id); const c = s.board.indexOf(id); if (c >= 0) s.board[c] = null; }
           snap({ t: 'destroy', cells, ids });
         } else if (part.k === 'rubble') { s.blockNext = it.cells.rubble.slice(); snap({ t: 'rubble', cells: s.blockNext }); }
-        else if (part.k === 'cleanse') { e.poison = e.fire = e.ice = e.shock = e.frail = 0; e.frozen = 0; snap({ t: 'cleanse' }); }
+        else if (part.k === 'cleanse') {
+          const gone = ['poison', 'fire', 'ice', 'shock', 'frail'].filter(k => e[k] > 0).map(k => STATUS_NAMES[k]).concat(e.frozen ? ['凍結'] : []);
+          e.poison = e.fire = e.ice = e.shock = e.frail = 0; e.frozen = 0; snap({ t: 'cleanse', gone });
+        }
         else if (part.k === 'curse') { p.curse += part.n; snap({ t: 'cursed', n: part.n }); }
       }
     }

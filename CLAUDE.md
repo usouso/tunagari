@@ -10,7 +10,7 @@
 - `botcore.js` … 自動で遊ぶ置き方の選び方（Node のボットと、画面の `?auto=1` が共用）。
 - `ui.js` / `index.html` / `style.css` … 画面。ルールが返す出来事ログを再生するだけ。
 - `tests.js` … 凹凸の きまりと、ブロックの文が文字どおりに動くかのテスト（`node tests.js`）。
-- `bot.js` … ボットの集計（`node bot.js` / `stage` / `adapt` / `use` / `picks` / `rot` / `hand`）。結果は `evidence/`。
+- `bot.js` … ボットの集計（`node bot.js` / `stage` / `adapt` / `use` / `picks` / `hand`）。結果は `evidence/`。
 - `check.js` … 画面の機械検査（ヘッドレスの Chrome。`node check.js`）。写真は `screenshots/`。
 - `server.js` … 確認用の小さなサーバー（127.0.0.1:8437）。`index.html` を直接開いても遊べる。
 - `review.js` … Codex に独立レビューを頼む（`node review.js` / `all` / `dry`）。結果は `reviews/` に残る。
@@ -22,7 +22,8 @@
 - 凸凹の「書いてあるとおりに効く・小さく効く（数字×WEAK）」は `rules.js` の `accepts` の表1つで決める。画面の印（色つきの凸＝効く、点線の凸＝小さく効く）も同じ表から出す。
 - 演出用の CSS の class は `fx-` で始める。「はまる所」の表示の class は `lk-` で始める。ブロックの絵の class は `pc-` で始める。
 - 札の上に字を足すときは、スマホ幅（マス71px）で重ならないかを `node check.js only=phone` で見る（レベルは字でなく点にしてある）。
-- くらべる用の切りかえ：`?rot=1`（ブロックを回せる）。決まったら消して、決めた方に固定する。
+- ブロックは いつでも回せる（2026-11-14 本人の答え 1A。`?rot=1` は消した）。
+- くらべる用の切りかえ：`?abil=1`（毒・再生が 攻め／守り で変わる）。決まったら消して、決めた方に固定する。
 - ルールや画面を変えてコミットしたら、`node review.js` で Codex にレビューを頼む。指摘は読んで、`reviews/` のファイルの「受け取り」と REPORT.md の「工程ごとの状態」に書く。直したら、もう一度 `node review.js`（同じ指摘の直しと再テストは3回まで）。Codex のレビューは「コードと `node tests.js`」まで。画面と通常入力は別に確かめる。
 - 公開：2026-11-12 に本人が「GitHub Pages で公開する」と決めた。公開先は https://usouso.github.io/tunagari/ （リポジトリ usouso/tunagari、branch は main。2026-11-12 に公開ずみ）。main への push が1〜2分後に公開版になる。
 - merge・課金・新規ログイン・アクセスやネットワークの拡大はしない（ユーザー全体の CLAUDE.md のとおり）。ほかのゲームの公開もしない。
