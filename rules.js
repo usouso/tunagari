@@ -18,6 +18,7 @@
   const W = 5, H = 4, N = W * H, HAND = 7, MAXHP = 100;
   const SHOCK_AT = 8, SHOCK_DMG = 10, FREEZE_AT = 8, COUNTER_MAX = 2, HIT_CAP = 200;
   const STAGES = 5, PICKS = 2, HEAL_AFTER = 20;
+  const WEAK = 1.5; // 強化が「書いてある相手」でない相手に はまったときの倍率（小さく効く）
   // 何戦目かで敵が強くなる（HP と 攻撃の倍率）
   const STAGE_HP = [1, 1.2, 1.45, 1.7, 2.0], STAGE_ATK = [1, 1.1, 1.2, 1.3, 1.4];
 
@@ -82,7 +83,7 @@
     atk: '凹だけ。能力を受け取ると、ヒットごとに働く。',
     def: '凹だけ。能力を受け取ると、敵のヒット1回ごとに働く。',
     abil: '凸でわたす。わたさなければ、自分で1回 働く（半分の力）。',
-    enh: '凸だけ。はめた相手を強くする。ひとりでは働かない。',
+    enh: `凸だけ。はめた相手を強くする。書いてある相手でなくても、小さく効く（数字×${WEAK}）。ひとりでは働かない。`,
   };
   // ことばの説明（画面はこれをそのまま出す）
   const KW = {
@@ -147,7 +148,8 @@
   }
   const rd = x => Math.round(x);
 
-  // どの組が「効く」か（画面の印も、計算も、この1つの表を使う）。 g … わたす側の種類、x … 受け取る側のブロック
+  // どの組が「書いてあるとおりに効く」か（画面の印も、計算も、この1つの表を使う）。 g … わたす側の種類、x … 受け取る側のブロック
+  // false の組も はまれば「小さく効く」（相手の数字×WEAK。derive で m.weak）。
   function accepts(g, x) {
     const gf = B[g].fam;
     if (gf === 'abil') return true; // 能力 → 攻撃・防御・能力（能力が相手のときは、相手が自分で働くときだけ。derive で見る）
@@ -186,11 +188,13 @@
         links.push(ln); A.outs.push(ln); X.ins.push(ln);
       }
     }
-    // 2. 強化（わたした相手に効くか）
+    // 2. 強化（書いてある相手なら そのとおりに。ちがう相手なら 小さく効く＝数字×WEAK）
     for (const ln of links) {
       const A = blk[ln.from], X = blk[ln.to];
       if (A.fam !== 'enh') continue;
-      if (accepts(A.type, X)) { ln.ok = true; X.m[A.type] = (X.m[A.type] || 0) + 1; }
+      ln.ok = true;
+      if (accepts(A.type, X)) X.m[A.type] = (X.m[A.type] || 0) + 1;
+      else { ln.weak = true; X.m.weak = (X.m.weak || 0) + 1; }
     }
     const targetsAll = cells.filter(i => blk[i].fam === 'atk' || blk[i].fam === 'def');
     // 3. 能力ブロック：わたすか、自分で働くか。
@@ -210,7 +214,7 @@
       A.gives = gives; state[i] = 2; return gives;
     }
     for (const i of cells) if (blk[i].fam === 'abil') settle(i);
-    const multOf = m => 1 + (m.amp || 0) * (V('amp') - 1), againOf = m => 1 + (m.haste || 0) * V('haste');
+    const multOf = m => 1 + (m.amp || 0) * (V('amp') - 1) + (m.weak || 0) * (WEAK - 1), againOf = m => 1 + (m.haste || 0) * V('haste');
     const giftOf = A => ({ kind: A.type, amt: rd(V(A.type) * multOf(A.m)), times: againOf(A.m), cell: A.cell, pierce: !!A.m.pierce, bonus: (A.m.pierce || 0) * V('pierce') });
     for (const i of cells) {
       const A = blk[i]; if (A.fam !== 'abil') continue;
@@ -308,8 +312,8 @@
       if (m.sustain) out.lines.push(X.type === 'poison' ? 'このターンの終わりに 毒がへらない' : `炎が${V('sustain')}%残る`);
     } else {
       out.gives = X.live; out.idle = !X.live;
-      if (X.live) out.lines.push(`${X.outs.filter(ln => ln.ok).map(ln => B[d.blk[ln.to].type].name).join('・')} を強くしている`);
-      else out.lines.push(X.outs.length ? 'はまっているが、この相手には効かない。' : 'どこにも はまっていない（働かない）。');
+      if (X.live) out.lines.push(X.outs.filter(ln => ln.ok).map(ln => B[d.blk[ln.to].type].name + (ln.weak ? `（小さく効く：数字×${WEAK}）` : '')).join('・') + ' を強くしている');
+      else out.lines.push('どこにも はまっていない（働かない）。');
     }
     if (m.refire) out.lines.push('次のターンも引く');
     return out;
@@ -498,7 +502,7 @@
     if (s.phase !== 'place' || s.hand.indexOf(id) < 0) return false;
     s.cards[id].rot = (s.cards[id].rot + 1) & 3; return true;
   }
-  // 置く前に見せる用：id を cell に置いたら、そのブロックに はまる所（効く・効かない）
+  // 置く前に見せる用：id を cell に置いたら、そのブロックに はまる所（効く・小さく効く）
   function linksIfPut(s, id, cell) {
     const c = cloneState(s); if (!put(c, id, cell)) return null;
     const d = derive(c);
@@ -739,7 +743,7 @@
   }
 
   return {
-    W, H, N, HAND, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
+    W, H, N, HAND, MAXHP, WEAK, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
     B, TYPES, FAMS, FAM_HINT, KW, STATUS_NAMES, TERMS, TERM_WORDS, termText, ENEMIES, ENEMY_IDS, START_DECK, NB, INNER,
     blockText, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
     newFight, cloneState, beginTurn, makeIntent, cellOf, canPut, put, take, clearBoard, rotate, linksIfPut,

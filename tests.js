@@ -119,14 +119,23 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('拡散→毒：盾にも とどく（敵の4ヒットで 毒+2 が4回）', r2.gifts('poison'), 4);
   eq('拡散→毒：攻撃も防御もなければ、自分で1回', go([['spread', 1, 1], ['poison', 1, 6]]).gifts('poison'), 1);
 }
-{ // 効かない組：はまっても何も起きない（線は「効かない」になる）
-  eq('貫通→盾 は効かない', okLinks(mk([['pierce', 1, 1], ['shield', 0, 6]])), '1>6×');
-  eq('拡散→斬撃 は効かない', okLinks(mk([['spread', 1, 1], ['slash', 0, 6]])), '1>6×');
-  eq('反射→回避 は効かない', okLinks(mk([['mirror', 1, 1], ['dodge', 0, 6]])), '1>6×');
-  eq('持続強化→斬撃 は効かない', okLinks(mk([['sustain', 1, 1], ['slash', 0, 6]])), '1>6×');
-  eq('効かない強化は「働いていない」', R.summary(R.derive(mk([['pierce', 1, 1], ['shield', 0, 6]])), 1).idle, true);
+{ // 書いてある相手でない組：はまると「小さく効く」（相手の数字×1.5。本人の答え 5B）
+  eq('小さく効く倍率は1.5', R.WEAK, 1.5);
+  eq('貫通→盾 も はまる（線は効く側）', okLinks(mk([['pierce', 1, 1], ['shield', 0, 6]])), '1>6');
+  ok('貫通→盾 は「小さく効く」の線', R.derive(mk([['pierce', 1, 1], ['shield', 0, 6]])).links[0].weak === true);
+  ok('貫通→斬撃 は書いてある相手なので「小さく効く」ではない', !R.derive(mk([['pierce', 1, 1], ['slash', 0, 6]])).links[0].weak);
+  eq('貫通→盾：シールド 7×1.5 = 11（四捨五入）→ 敵の14のうち 受けるのは3', go([['pierce', 1, 1], ['shield', 0, 6]], { parts: [A(14)] }).taken, 3);
+  eq('拡散→斬撃：6×1.5 = 9ダメージ', go([['spread', 1, 1], ['slash', 0, 6]]).dealt, 9);
+  eq('持続強化→斬撃：6×1.5 = 9ダメージ', go([['sustain', 1, 1], ['slash', 0, 6]]).dealt, 9);
+  eq('反射→回避：1×1.5 → 2回よける（敵の 5×3 で受けるのは5）', go([['mirror', 1, 1], ['dodge', 0, 6]], { parts: [A(5, 3)] }).taken, 5);
+  eq('増幅と小さく効くは 足し算：斬撃 6×(1 +1 +0.5) = 15', go([['amp', 1, 1], ['slash', 0, 6], ['spread', 0, 5]]).dealt, 15);
+  eq('能力にも：持続強化→再生 の わたす数字は 2×1.5 = 3', R.derive(mk([['sustain', 1, 1], ['regen', 1, 6], ['shield', 0, 11]])).blk[6].gift.amt, 3);
+  const sum = R.summary(R.derive(mk([['pierce', 1, 1], ['shield', 0, 6]])), 1);
+  eq('小さく効く強化は「働いている」', sum.idle, false);
+  ok('小さく効く強化の説明に「小さく効く」と書いてある', sum.lines.join('').indexOf('小さく効く') >= 0, sum.lines.join(''));
   eq('効く強化は「働いている」', R.summary(R.derive(mk([['amp', 1, 1], ['shield', 0, 6]])), 1).idle, false);
-  eq('貫通→盾 でも盾はふつうに働く', go([['pierce', 1, 1], ['shield', 0, 6]], { parts: [A(10)] }).taken, 3);
+  eq('はまっていない強化は「働いていない」', R.summary(R.derive(mk([['pierce', 0, 1]])), 1).idle, true);
+  ok('系統の説明に「小さく効く」が書いてある', R.FAM_HINT.enh.indexOf('小さく効く') >= 0);
 }
 
 // ------------------------------------------------------------ 4. 能力：ひとり＝1回／攻撃に わたす＝ヒットごと／防御に わたす＝敵のヒットごと

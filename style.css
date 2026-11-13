@@ -138,6 +138,7 @@ a { color: inherit; }
 .pc .pc-body { fill: color-mix(in srgb, var(--fc) 24%, #1b1f29); stroke: var(--fc); stroke-width: 2.4; stroke-linejoin: round; pointer-events: auto; }
 .pc .pc-tab { fill: color-mix(in srgb, var(--fc) 55%, #1b1f29); stroke: var(--fc); stroke-width: 2.4; stroke-linejoin: round; pointer-events: auto; }
 .pc .pc-tab.on { fill: var(--fc); stroke: #fff; }
+.pc .pc-tab.on.wk { fill: color-mix(in srgb, var(--fc) 45%, #1b1f29); stroke: #fff; stroke-dasharray: 3 2; }
 .pc .pc-tab.off { fill: #3a4050; stroke: #8a93a6; stroke-dasharray: 4 3; }
 .pc .pc-arrow { fill: #14161c; }
 .pc .pc-x { stroke: #ff9c9c; stroke-width: 3; stroke-linecap: round; }

@@ -69,7 +69,7 @@
     let svg = `<svg viewBox="0 0 100 100" aria-hidden="true"><path class="pc-body" d="${bodyPath(e)}"/>`;
     for (let k = 0; k < 4; k++) if (e[k] === 1) {
       const ln = X ? X.outs.find(l => l.side === k) : null, len = ln ? 24 : 14;
-      svg += `<path class="pc-tab${ln ? (ln.ok ? ' on' : ' off') : ''}"${ln ? ` data-link="${ln.from}-${ln.to}" data-ok="${ln.ok ? 1 : 0}"` : ''} d="${tabPath(k, len)}"/>`;
+      svg += `<path class="pc-tab${ln ? (ln.ok ? (ln.weak ? ' on wk' : ' on') : ' off') : ''}"${ln ? ` data-link="${ln.from}-${ln.to}" data-ok="${ln.ok ? 1 : 0}"` : ''} d="${tabPath(k, len)}"/>`;
       if (ln) svg += ln.ok ? `<path class="pc-arrow" d="${arrowPath(k, len)}"/>` : `<path class="pc-x" d="${crossPath(k, len)}"/>`;
     }
     svg += '</svg>';
@@ -645,7 +645,7 @@
     p.textContent = JSON.stringify(Object.assign({ w: window.innerWidth, h: window.innerHeight, turn: G.s ? G.s.turn : 0, screen: { items: lc.textItems, chars: lc.textChars, by: lc.textBy } }, CHECK));
   }
   let autoSeed = 12345; const autoRand = () => { autoSeed = (autoSeed * 1103515245 + 12345) & 0x7fffffff; return autoSeed / 0x7fffffff; };
-  // 盤面の絵（はまっている凸・効く効かない・番号・札の字・働いていない印）が、計算と同じか
+  // 盤面の絵（はまっている凸・効く・小さく効く・番号・札の字・働いていない印）が、計算と同じか
   function checkBoardDisplay() {
     const s = G.s, d = R.derive(s);
     const want = d.links.map(l => `${l.from}-${l.to}:${l.ok ? 1 : 0}`).sort().join(' ');
