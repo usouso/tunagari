@@ -73,6 +73,8 @@ async function main() {
       for (const id of (quick ? ['mage'] : ENEMIES)) add(sn, w, h, pc, `れんしゅう ${id}（3戦目の強さ）`, `auto=1&speed=0&seed=11&enemy=${id}&stage=2`, { play: true, shot: 'one-' + id });
       add(sn, w, h, pc, '回せる設定（?rot=1）通し', 'auto=1&speed=0&seed=11&rot=1', { play: true });
       // 敵が動く前に負ける（HP1 で、攻撃ブロックを1個だけ置いて狂戦士をなぐる → トゲで負け）。負けの画面の文を見る
+      // ことばの説明を全部 出す場面（状態と予告を直接つくる）。3体で、装甲・身かわし・トゲの説明も出す
+      for (const id of ['golem', 'hunter', 'berserk']) add(sn, w, h, pc, `ことばの説明を全部 出す（${id}）`, `auto=1&speed=0&seed=11&enemy=${id}&scene=terms`, { stop: true, terms: true, shot: id === 'golem' ? 'terms' : null });
       add(sn, w, h, pc, '敵が動く前に負ける（トゲ）', 'auto=1&speed=0&seed=11&enemy=berserk&hp=1&scene=thorn', { play: true, lose: true, early: true, shot: 'lose-thorn' });
     }
   }
@@ -100,7 +102,7 @@ async function main() {
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
       if (c.screen && !(k.screens && k.screens[c.screen] > 0)) bad.push(`「${c.screen}」の画面が開いていない`);
       if (c.tip && !(k.tipShown && k.tipShown.key === c.tip && !k.tipShown.hidden && k.tipShown.text.indexOf('結界') === 0 && k.tipShown.text.length > 10)) bad.push(`ことばの説明が出ていない（${JSON.stringify(k.tipShown)}）`);
-      if (c.play && !(k.tipChecks > 0)) bad.push('ことばの説明の検査が、1回も動かなかった');
+      if ((c.play || c.terms) && !(k.tipChecks > 0)) bad.push('ことばの説明の検査が、1回も動かなかった');
       total.tips += k.tipChecks || 0; for (const key of Object.keys(k.tipSeen || {})) total.tipSeen[key] = 1;
       total.turns += k.turns || 0; total.links += k.linkChecks || 0; total.spots += k.spotChecks || 0; total.fights += k.fights || 0;
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
@@ -126,7 +128,9 @@ async function main() {
   console.log(`\nくらべた回数: 戦い ${total.fights} / ターン ${total.turns}（予想＝結果、演出の合計＝計算、HPの表示）/ 盤面の絵 ${total.links} / はまるマスの数字 ${total.spots}`);
   if (!only && !(total.clears > 0)) { console.log('✗ 5戦目まで勝ち切る場面が、1つも回っていない（検査が足りない）'); fail++; }
   console.log(`5戦目まで勝ち切る場面: ${total.clears}`);
-  console.log(`ことばの説明を出してくらべた回数: ${total.tips}（出した ことば: ${Object.keys(total.tipSeen).sort().join(' ')}）`);
+  const needTerms = Object.keys(require('./rules.js').TERMS), lackTerms = needTerms.filter(key => !total.tipSeen[key]);
+  console.log(`ことばの説明を出してくらべた回数: ${total.tips}（出した ことば ${Object.keys(total.tipSeen).length} / ${needTerms.length}: ${Object.keys(total.tipSeen).sort().join(' ')}）`);
+  if (!only && lackTerms.length) { console.log(`✗ 説明を1回も出していない ことば がある: ${lackTerms.join(' ')}（検査が足りない）`); fail++; }
   console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }

@@ -364,6 +364,15 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('氷の説明に しきい値が入る', R.termText('ice', g).text.indexOf(String(R.FREEZE_AT)) >= 0, true);
   eq('雷の説明に しきい値とダメージが入る', [R.termText('shock', g).text.indexOf(String(R.SHOCK_AT)) >= 0, R.termText('shock', g).text.indexOf(String(R.SHOCK_DMG)) >= 0], [true, true]);
   eq('ない ことば は null', R.termText('nothing', g), null);
+  // 封印の説明に書いたこと（Codex レビュー 2c5acea の指摘1）：攻撃・防御・能力は自分では働く。強化は働かない
+  ok('封印の説明に「強化は…働かない」と書いてある', R.termText('seal', g).text.indexOf('強化は、はまらないので働かない') >= 0);
+  eq('封印された強化は「働いていない」', R.summary(R.derive(mk([['amp', 1, 1], ['slash', 0, 6]], { sealed: [0] })), 1).idle, true);
+  eq('封印された盾は 自分では働く', go([['shield', 0, 6]], { sealed: [0], parts: [A(10)] }).taken, 3);
+  eq('封印された斬撃は 自分では働く', go([['slash', 0, 6]], { sealed: [0] }).dealt, 6);
+  // 「次 がれき」は、がれきとは別の説明（指摘2）：このターンは置ける
+  ok('「次 がれき」の説明は「このターンは置ける」', R.termText('rubbleNext', g).text.indexOf('このターンは置ける') >= 0 && R.termText('rubble', g).text.indexOf('置けない') >= 0);
+  { const z = R.newFight({ enemyId: 'dummy', seed: 3 }); z.intent = { label: 'テスト', parts: [{ k: 'rubble', n: 1 }], cells: { rubble: [6] } };
+    eq('がれきの予告のマスには、このターンは置ける。次のターンは置けない', [R.canPut(z, z.hand[0], 6), (R.endTurn(z), R.canPut(z, z.hand[0], 6))], [true, false]); }
   ok('さがす ことば は、長い名前が先（「毒」より「毒消費」のような取りちがえを へらす）', R.TERM_WORDS.every((w, i) => i === 0 || R.TERM_WORDS[i - 1][0].length >= w[0].length));
   // 説明の文が、計算と合っているか（文に書いたことを1つずつ）
   eq('結界：毒のダメージは防げない', go([['poison', 1, 1], ['slash', 0, 6]], { e: { guard: 50, poison: 3 } }).dealt, 5);

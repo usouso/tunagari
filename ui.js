@@ -2,7 +2,7 @@
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
  * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
  *      ?hp=数（れんしゅうを そのHPで始める。検査用）
- *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）| terms（ことばの説明を全部 出す）
  */
 (function () {
   'use strict';
@@ -202,7 +202,7 @@
       const c = el('div', 'cell'); c.dataset.cell = i;
       const id = s.board[i];
       if (s.blocked.indexOf(i) >= 0) { c.classList.add('blocked'); const tg = el('span', 'tag', 'がれき'); tg.dataset.tip = 'rubble'; c.appendChild(tg); }
-      else if (id == null && nextRub.indexOf(i) >= 0) { c.classList.add('next-rubble'); const tg = el('span', 'tag', '次 がれき'); tg.dataset.tip = 'rubble'; c.appendChild(tg); }
+      else if (id == null && nextRub.indexOf(i) >= 0) { c.classList.add('next-rubble'); const tg = el('span', 'tag', '次 がれき'); tg.dataset.tip = 'rubbleNext'; c.appendChild(tg); }
       if (id != null && !G.gone[id]) {
         const card = s.cards[id], sealed = s.sealed.indexOf(id) >= 0;
         const p = pieceEl(card, { d, cell: i, lv: lvOf(card.type), sealed, mark: sealed ? ['seal', '封印'] : aimed.indexOf(i) >= 0 ? ['destroy', '破壊'] : null });
@@ -654,18 +654,20 @@
     checkTips();
   }
   // 説明つきの印が、どれも rules.js の ことば か。1つ えらんで出してみて、文が同じか・画面の中に収まるか
-  function checkTips() {
+  function checkTips(all1) { // all1 … 見えている ことば を全部 出す（決まった場面用）。ふだんは1つずつ
     const all = [...document.querySelectorAll('[data-tip]')].filter(x => x.getClientRects().length);
     for (const x of all) if (!R.TERMS[x.dataset.tip]) miss(`説明のない ことば: ${x.dataset.tip}`);
     // 出してみるのは、いま画面に見えている ことば だけ（スマホでは、下にかくれた ことば には のせられない）
     const els = all.filter(x => { const q = x.getBoundingClientRect(); return q.top >= 0 && q.bottom <= window.innerHeight && q.left >= 0 && q.right <= window.innerWidth; });
     if (!els.length) return;
-    const x = els[CHECK.tipChecks % els.length], want = R.termText(x.dataset.tip, D());
-    showTip(x);
-    const box = $('#tip'), r = box.getBoundingClientRect();
-    if (box.hidden || box.textContent !== want.name + want.text) miss(`説明の文がちがう（${x.dataset.tip}）`);
-    if (r.left < 0 || r.top < 0 || r.right > window.innerWidth + 1 || r.bottom > window.innerHeight + 1) miss(`説明の箱が画面からはみ出す（${x.dataset.tip} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}）`);
-    CHECK.tipChecks++; CHECK.tipSeen[x.dataset.tip] = 1;
+    for (const x of (all1 ? els : [els[CHECK.tipChecks % els.length]])) {
+      const want = R.termText(x.dataset.tip, D());
+      showTip(x);
+      const box = $('#tip'), r = box.getBoundingClientRect();
+      if (box.hidden || box.textContent !== want.name + want.text) miss(`説明の文がちがう（${x.dataset.tip}）`);
+      if (r.left < 0 || r.top < 0 || r.right > window.innerWidth + 1 || r.bottom > window.innerHeight + 1) miss(`説明の箱が画面からはみ出す（${x.dataset.tip} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}）`);
+      CHECK.tipChecks++; CHECK.tipSeen[x.dataset.tip] = 1;
+    }
     if (SCREEN !== 'tip') showTip(null);
   }
   // 「はまるマスの数字」を1つ えらんで、本当に置いて、その数だけ はまるかを見る
@@ -687,6 +689,13 @@
     while (guard++ < 400) {
       const s = G.s;
       if (s.phase === 'place') {
+        if (Q.get('scene') === 'terms') { // 決まった場面：状態と予告を直接つくって、ことばの説明を全部 出す（ふつうの戦いでは出にくい「たまり」「凍結」「次 がれき」など）
+          Object.assign(s.e, { poison: 3, fire: 1, ice: 2, shock: 2, frozen: 1, guard: 5 }); Object.assign(s.p, { shield: 4, curse: 2, charge: 5 });
+          s.sealed = [s.hand[0]]; s.blocked = [6];
+          s.intent = { label: 'ことばの場面', rage: true, parts: [{ k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'cleanse' }], cells: { rubble: [8, 13] } }; // 予告は3行まで（本物の戦いは2行まで。多すぎると左の列が あふれる）
+          R.put(s, s.hand[0], 11); renderAll(); checkTips(true); sampleLayout();
+          CHECK.stopped = true; writeCheck(); return;
+        }
         let L = Bot.search(s, { style });
         if (Q.get('scene') === 'thorn') { // 決まった場面：攻撃ブロックを1個だけ置く（HP1 で狂戦士をなぐると、敵が動く前にトゲで負ける）
           const id = s.hand.find(x => R.B[s.cards[x].type].fam === 'atk'); L = { board: new Array(R.N).fill(null), rots: {} }; if (id != null) L.board[6] = id;
