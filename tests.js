@@ -268,6 +268,10 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('どこも はまっていなければ、何も こわれない', R.destroyTargets(R.derive(mk([['slash', 0, 6], ['shield', 0, 13]])), 1), []);
   eq('同じ数なら 左上が先', R.destroyTargets(R.derive(mk([['amp', 1, 1], ['slash', 0, 6], ['amp', 1, 3], ['slash', 0, 8]])), 1), [1]);
   eq('破壊2個', R.destroyTargets(R.derive(mk(spec)), 2), [6, 1]);
+  // 破壊のあと、同じターンの呪いで負けても、札の数が合う（Codex レビュー 22eedd5 の指摘1）
+  const z = mk([['amp', 1, 1], ['slash', 0, 6]], { p: { hp: 1, curse: 1 }, parts: [{ k: 'destroy', n: 1 }] });
+  R.resolve(z, { sim: true });
+  eq('破壊のあと同じターンに負けても、こわれた札は手札にも盤面にも残らない', [z.phase, z.gone.length, z.hand.length, z.board.filter(x => x != null).length, z.deck.length + z.discard.length + z.hand.length + z.gone.length], ['lost', 1, 1, 1, 2]);
 }
 { // 予告の文
   const it = { parts: [A(5, 3), { k: 'guard', n: 8 }, { k: 'seal', n: 2 }, { k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'curse', n: 3 }], cells: { rubble: [6, 7] } };
@@ -333,6 +337,12 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('斬撃の字（増幅＋加速）', R.summary(d, 6).main, '12×2');
   eq('盾の字', R.summary(d, 8).main, '+7');
   eq('盾が受け取った毒', R.summary(d, 8).lines, ['シールド+7', '敵のヒット1回ごとに 毒+2']);
+  // 盤面の説明の文（summary().lines）も、札の文と同じ言い方か（Codex レビュー 22eedd5 の指摘2）
+  eq('反射→盾 の説明', R.summary(R.derive(mk([['mirror', 1, 1], ['shield', 0, 6]])), 6).lines, ['シールド+7', 'このブロックが 敵の攻撃を防いだ分の50%を返す']);
+  eq('吸収→盾 の説明', R.summary(R.derive(mk([['leech', 1, 1], ['shield', 0, 6]])), 6).lines, ['シールド+7', 'このブロックが 敵の攻撃を防いだ分の30%回復']);
+  eq('反射→堅牢 の説明', R.summary(R.derive(mk([['mirror', 1, 1], ['tough', 0, 6]])), 6).lines, ['敵のヒット1回ごとに −2', 'このブロックが 敵の攻撃を防いだ分の50%を返す']);
+  eq('持続強化→盾 の説明', R.summary(R.derive(mk([['sustain', 1, 1], ['shield', 0, 6]])), 6).lines, ['シールド+7', 'この盾のシールドが50%残る']);
+  eq('吸収→斬撃 の説明', R.summary(R.derive(mk([['leech', 1, 1], ['slash', 0, 6]])), 6).lines, ['6ダメージ ×1ヒット', '与えたヒットダメージの30%回復']);
   eq('わたした毒は「わたしている」', R.summary(d, 3).gives, true);
   eq('ひとりの再生は「自分で1回」', [R.summary(d, 10).gives, R.summary(d, 10).main], [false, '+1']);
   const f = R.forecast(s);

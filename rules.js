@@ -617,7 +617,8 @@
         else if (part.k === 'seal') { s.sealNext += part.n; snap({ t: 'seal', n: part.n }); }
         else if (part.k === 'destroy') {
           const cells = destroyTargets(d, part.n), ids = cells.map(c => blk[c].id);
-          for (const id of ids) s.gone.push(id);
+          // こわれた札は、その場で手札と盤面から外す（このあと同じターンに負けても、札の数が合うように）
+          for (const id of ids) { s.gone.push(id); s.hand = s.hand.filter(x => x !== id); const c = s.board.indexOf(id); if (c >= 0) s.board[c] = null; }
           snap({ t: 'destroy', cells, ids });
         } else if (part.k === 'rubble') { s.blockNext = it.cells.rubble.slice(); snap({ t: 'rubble', cells: s.blockNext }); }
         else if (part.k === 'cleanse') { e.poison = e.fire = e.ice = e.shock = 0; e.frozen = 0; snap({ t: 'cleanse' }); }
