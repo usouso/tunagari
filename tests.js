@@ -1,421 +1,381 @@
 'use strict';
 /*
- * tests.js — ブロックの文が「文字どおり」に動くかのテスト。  実行: node tests.js
- * かかし（HP 99999、何もしない敵）に盤面を作って1ターン発動し、文に書いてある数と比べる。
+ * tests.js — ルールのテスト（ジグソー版 v2）。 実行: node tests.js
+ * 見ること：凹凸の きまり（一方向・わたした側は働かない・先へは わたらない）、ブロックの文が文字どおりに動くか、
+ *           敵の性質と じゃま、山札（7個引く・全部すてる・切り直す）、5連戦の流れ、予想＝結果、同じ種なら同じ結果。
+ * マスの番号: 横5 × たて4。 0〜4 が1段目、5〜9 が2段目…。
+ * 向き(rot)の おぼえ方: 能力・強化は rot0 で凸が右、rot1 で凸が下、rot2 で凸が左。斬撃 rot0 は凹が上と左。盾 rot0 は凹が上と右。
  */
-const R = require('./rules.js');
-const Bot = require('./botcore.js');
-let pass = 0, fail = 0; const fails = [];
+const R = require('./rules.js'), Bot = require('./botcore.js');
+let pass = 0, fail = 0;
 function eq(name, got, want) {
-  const ok = JSON.stringify(got) === JSON.stringify(want);
-  if (ok) pass++; else { fail++; fails.push(`✗ ${name}: 期待 ${JSON.stringify(want)} / 実際 ${JSON.stringify(got)}`); }
+  const g = JSON.stringify(got), w = JSON.stringify(want);
+  if (g === w) pass++; else { fail++; console.log(`✗ ${name}\n    出た: ${g}\n    文どおりなら: ${w}`); }
 }
-function ok(name, cond, extra) { if (cond) pass++; else { fail++; fails.push(`✗ ${name}${extra ? ' ' + extra : ''}`); } }
-
-// 盤面を文字で作る。 例: setup({ 12:'slash', 13:'poison2' })  （末尾の数字はレベル）
-function setup(cells, enemyParts, enemyMod) {
-  const s = R.newGame('dummy', 1);
-  R.place(s, 0, 0); s.board[0] = null; // start をぬけて place へ
-  for (const k in cells) {
-    const m = /^([a-z]+)(\d)?$/.exec(cells[k]); const b = R.mk(m[1]); b.lv = m[2] ? +m[2] : 1; s.board[+k] = b;
-  }
-  s.intent = { moves: 3, label: 'テスト', parts: enemyParts || [], cells: { seal: [], destroy: [], rubble: [] } };
-  if (enemyMod) Object.assign(s.e, enemyMod);
+function ok(name, cond, note) { if (cond) pass++; else { fail++; console.log(`✗ ${name}${note ? '  ' + note : ''}`); } }
+const A = (dmg, hits) => ({ k: 'atk', dmg, hits: hits || 1 });
+// 盤面を直接つくる。 spec: [[種類, 向き, マス], …]（札の番号は ならべた順）。 opt: { enemy, parts（敵の行動）, e, p, lv, sealed }
+function mk(spec, opt) {
+  opt = opt || {};
+  const s = R.newFight({ enemyId: opt.enemy || 'dummy', deck: spec.map(x => [x[0], x[1]]), hand: spec.length, seed: 5, lv: opt.lv });
+  s.sealed = opt.sealed || [];
+  spec.forEach((x, id) => { if (x[2] != null && !R.put(s, id, x[2])) throw new Error('置けない: ' + x); });
+  s.intent = { label: 'テスト', parts: opt.parts || [], cells: { rubble: [] } };
+  if (opt.e) Object.assign(s.e, opt.e);
+  if (opt.p) Object.assign(s.p, opt.p);
   return s;
 }
-const dealt = s => s.stats.total;
-function run(cells, parts, mod) { const s = setup(cells, parts, mod); const ev = R.resolve(s); return { s, ev }; }
-const atk = (dmg, hits) => ({ k: 'atk', dmg, hits: hits || 1 });
-const I = (s, parts) => { s.intent = { moves: 3, label: 't', parts, cells: { seal: [], destroy: [], rubble: [] } }; };
-// マス番号（5×5）: 12=まん中 13=右 14=右の右 11=左 7=上 17=下 / ななめ 6,8,16,18 / はなれた所 0,1,2,22,23,24
-eq('盤面は5×5', [R.W, R.H, R.N], [5, 5, 25]);
+// 1ターン回す（次のターンの準備はしない）
+function go(spec, opt) {
+  const s = mk(spec, opt), e0 = s.e.hp, p0 = s.p.hp;
+  const ev = R.resolve(s, { sim: true });
+  return { s, ev, dealt: e0 - s.e.hp, taken: p0 - s.p.hp, n: t => ev.filter(x => x.t === t).length, gifts: k => ev.filter(x => x.t === 'gift' && x.kind === k).length };
+}
+const okLinks = s => R.derive(s).links.map(l => `${l.from}>${l.to}${l.ok ? '' : '×'}`).join(' ');
 
-// ---- 攻撃
-eq('斬撃 5×1', dealt(run({ 12: 'slash' }).s), 5);
-eq('斬撃Lv2 8', dealt(run({ 12: 'slash2' }).s), 8);
-eq('斬撃Lv3 11', dealt(run({ 12: 'slash3' }).s), 11);
-eq('射撃 2×2', dealt(run({ 12: 'shot' }).s), 4);
-eq('射撃Lv3 4×2', dealt(run({ 12: 'shot3' }).s), 8);
-eq('範囲 3', dealt(run({ 12: 'area' }).s), 3);
-{ const r = run({ 12: 'shot' }); eq('射撃のヒット数 2', r.ev.filter(e => e.t === 'hit').length, 2); }
-// ---- 属性
-{ const r = run({ 12: 'slash', 13: 'poison' }); eq('毒: 5 + 毒1', dealt(r.s), 6); eq('毒は半分にへる 1→0', r.s.e.poison, 0); }
-{ const r = run({ 12: 'shot', 13: 'poison' }); eq('射撃+毒: 4 + 毒2', dealt(r.s), 6); eq('毒 2→1', r.s.e.poison, 1); }
-{ const r = run({ 12: 'shot', 13: 'fire' }); eq('射撃+炎: 2 → 燃える → 2+1', dealt(r.s), 5); eq('炎はターンの終わりに消える', r.s.e.fire, 0); eq('炎のぶん 1', r.s.stats.dealt.fire, 1); }
-{ const r = run({ 12: 'shot', 13: 'fire' }, null, { fire: 3 }); eq('大きい炎があれば そのまま: (2+3)×2', dealt(r.s), 10); }
-{ const r = run({ 12: 'slash', 13: 'fire2' }, null, { fire: 1 }); eq('炎1の敵に炎2: このヒットは+1', dealt(r.s), 6); eq('そのあと炎2になる', r.ev.find(e => e.t === 'hit').es[1], 2); }
-{ const r = run({ 12: 'shot', 13: 'ice3' }, [atk(15)], { ice: 14 }); eq('氷 14+6=20 で凍結: 攻撃15 → 8', r.s.stats.taken, 8); eq('凍結で氷−20', r.s.e.ice, 0); eq('攻撃されたら凍結はとける', r.s.e.frozen, 0); }
-{ const s = setup({ 12: 'shot', 13: 'ice3' }, [], { ice: 14 }); R.resolve(s); eq('攻撃がないターンは凍結が残る', s.e.frozen, 1); I(s, [atk(10)]); R.resolve(s); eq('次の攻撃 10 → 5', s.stats.taken, 5); }
-{ const r = run({ 12: 'shot', 13: 'ice' }, [atk(14)]); eq('氷 2 では凍結しない', r.s.stats.taken, 14); eq('氷はへらない', r.s.e.ice, 2); }
-{ const r = run({ 12: 'shot', 13: 'shock' }, null, { shock: 13 }); eq('雷 13+2=15 で感電 +10', dealt(r.s), 14); eq('感電で雷−15', r.s.e.shock, 0); eq('次のターンの手数+1', r.s.moves, 4); }
-{ const r = run({ 12: 'shot', 13: 'shock' }); eq('雷 2 では感電しない', dealt(r.s), 4); eq('雷はへらない', r.s.e.shock, 2); eq('手数そのまま', r.s.moves, 3); }
-{ const r = run({ 12: 'shot', 13: 'shock3', 11: 'haste3' }, null, { shock: 40 }); eq('感電は1ターンに1回', r.ev.filter(e => e.t === 'shock').length, 1); }
-// ---- 特殊
-eq('追撃: 状態なし 2×1', dealt(run({ 12: 'slash', 13: 'chase' }).s), 7);
-eq('追撃: 毒あり 2×2（追撃も毒をのせる）', dealt(run({ 12: 'slash', 13: 'chase', 11: 'poison' }).s), 5 + 4 + 2);
-eq('追撃: 状態4種類 2×5', dealt(run({ 12: 'slash', 13: 'chase' }, null, { ice: 1, shock: 1, poison: 1, fire: 1 }).s), (5 + 1) + (10 + 1) + 1);
-eq('追撃Lv2: 3×1', dealt(run({ 12: 'slash', 13: 'chase2' }).s), 8);
-eq('反撃40%: 5 + 2', dealt(run({ 12: 'slash', 13: 'counter' }, [atk(1, 1)]).s), 7);
-eq('反撃: 2ヒットで2回', dealt(run({ 12: 'slash', 13: 'counter' }, [atk(1, 2)]).s), 9);
-eq('反撃は1ターン2回まで', dealt(run({ 12: 'slash', 13: 'counter' }, [atk(1, 5)]).s), 9);
-eq('反撃Lv3 80%: 5+4', dealt(run({ 12: 'slash', 13: 'counter3' }, [atk(1, 1)]).s), 9);
-eq('攻撃されなければ反撃なし', dealt(run({ 12: 'slash', 13: 'counter' }, []).s), 5);
-{ const r = run({ 12: 'slash', 13: 'consume' }, null, { poison: 20 }); eq('毒消費: 5 + 20×2', dealt(r.s), 45); eq('毒は全部消える', r.s.e.poison, 0); }
-eq('毒消費Lv2: 5 + 20×2.5', dealt(run({ 12: 'slash', 13: 'consume2' }, null, { poison: 20 }).s), 55);
-eq('毒消費Lv3: 5 + 20×3', dealt(run({ 12: 'slash', 13: 'consume3' }, null, { poison: 20 }).s), 65);
-eq('毒+毒消費: 5 + 1×2', dealt(run({ 12: 'slash', 13: 'consume', 11: 'poison' }).s), 7);
-{ const s = setup({ 12: 'slash', 13: 'charge' }); R.resolve(s); eq('蓄積: 1ターン目 5', dealt(s), 5); eq('たまり 2', s.board[13].charge, 2); R.resolve(s); eq('2ターン目 5+2', dealt(s), 12); R.resolve(s); eq('3ターン目 5+4', dealt(s), 21); }
-{ const s = setup({ 12: 'shot', 13: 'charge3' }); R.resolve(s); R.resolve(s); eq('蓄積は最初のヒットだけ: 4 + (2+4)+2', dealt(s), 4 + 8); }
-eq('再発動 50%: 5+3', dealt(run({ 12: 'slash', 13: 'refire' }).s), 8);
-eq('再発動Lv3 100%: 5+5', dealt(run({ 12: 'slash', 13: 'refire3' }).s), 10);
-eq('再発動は追撃も半分で出る: 5+2+3+1', dealt(run({ 12: 'slash', 13: 'refire', 11: 'chase' }).s), 11);
-// ---- 強化
-eq('増幅 +50%: 7.5→8', dealt(run({ 12: 'slash', 13: 'amp' }).s), 8);
-eq('増幅Lv3 +100%: 10', dealt(run({ 12: 'slash', 13: 'amp3' }).s), 10);
-eq('増幅2個 +100%: 10', dealt(run({ 12: 'slash', 13: 'amp', 11: 'amp' }).s), 10);
-{ const r = run({ 12: 'slash', 13: 'poison2', 14: 'amp' }); eq('増幅→毒Lv2: 毒+3', r.ev.find(e => e.t === 'hit').add.poison, 3); eq('合計 5+3', dealt(r.s), 8); }
-eq('増幅は増幅にきかない', dealt(run({ 12: 'slash', 13: 'amp', 14: 'amp' }).s), 8);
-eq('増幅は加速にきかない', dealt(run({ 12: 'slash', 13: 'haste', 14: 'amp' }).s), 10);
-eq('増幅は特殊（再発動）にきかない', dealt(run({ 12: 'slash', 13: 'refire', 14: 'amp' }).s), 8);
-eq('貫通: 装甲3を無視', dealt(run({ 12: 'slash', 13: 'pierce' }, null, { armor: 3 }).s), 5);
-eq('貫通なし: 装甲3で 5→2', dealt(run({ 12: 'slash' }, null, { armor: 3 }).s), 2);
-eq('装甲3: 射撃2は 0', dealt(run({ 12: 'shot' }, null, { armor: 3 }).s), 0);
-eq('結界15: 5は全部防がれる', dealt(run({ 12: 'slash' }, null, { guard: 15 }).s), 0);
-eq('結界15を貫通', dealt(run({ 12: 'slash', 13: 'pierce' }, null, { guard: 15 }).s), 5);
-eq('貫通Lv2: +2', dealt(run({ 12: 'slash', 13: 'pierce2' }).s), 7);
-eq('毒は装甲を無視', run({ 12: 'shot', 13: 'poison' }, null, { armor: 3 }).s.stats.dealt.poison, 2);
-{ const s = setup({ 12: 'slash', 13: 'poison2', 14: 'spread', 22: 'shot' }); const d = R.derive(s.board); eq('拡散: はなれた射撃に毒+1（2の50%）', d.atk.find(a => a.type === 'shot').elem.poison, 1); eq('つながっている斬撃は そのまま+2', d.atk.find(a => a.type === 'slash').elem.poison, 2); }
-{ const s = setup({ 12: 'slash', 13: 'poison2', 14: 'spread3', 22: 'shot' }); const d = R.derive(s.board); eq('拡散Lv3 100%: 毒+2', d.atk.find(a => a.type === 'shot').elem.poison, 2); }
-eq('持続なし: 毒 16+2=18 → 9', run({ 12: 'shot', 13: 'poison' }, null, { poison: 16 }).s.e.poison, 9);
-eq('持続: へる量1/2 → 18×0.75=13', run({ 12: 'shot', 13: 'poison', 14: 'sustain' }, null, { poison: 16 }).s.e.poison, 13);
-eq('持続Lv3: へる量1/8 → 18×(1-1/16)=16', run({ 12: 'shot', 13: 'poison', 14: 'sustain3' }, null, { poison: 16 }).s.e.poison, 16);
-eq('持続: 炎2 → 半分のこる 1', run({ 12: 'shot', 13: 'fire2', 14: 'sustain' }).s.e.fire, 1);
-{ const s = setup({ 0: 'shield', 1: 'sustain' }); R.resolve(s); eq('持続+盾: シールド6の50%が残る', s.p.shield, 3); R.resolve(s); eq('次のターン 3+6=9 → 4', s.p.shield, 4); }
-{ const s = setup({ 0: 'shield', 1: 'sustain3' }); R.resolve(s); eq('持続Lv3+盾: 80%残る 6→4', s.p.shield, 4); }
-{ const s = setup({ 0: 'shield' }); R.resolve(s); eq('盾だけ: ターンの終わりに消える', s.p.shield, 0); }
-eq('加速: 斬撃 2ヒット', dealt(run({ 12: 'slash', 13: 'haste' }).s), 10);
-eq('加速Lv3: 射撃 5ヒット', dealt(run({ 12: 'shot', 13: 'haste3' }).s), 10);
-eq('加速→追撃: 追撃2ヒット', dealt(run({ 12: 'slash', 13: 'chase', 14: 'haste' }).s), 5 + 2 + 2);
-eq('変換: シールド6の50% = +3', dealt(run({ 12: 'slash', 13: 'convert', 0: 'shield' }).s), 8);
-eq('変換Lv2 100%: +6', dealt(run({ 12: 'slash', 13: 'convert2', 0: 'shield' }).s), 11);
-eq('変換は最初のヒットだけ', dealt(run({ 12: 'shot', 13: 'convert2', 0: 'shield' }).s), 4 + 6);
-// ---- 防御
-eq('盾6: 攻撃10 → 4', run({ 0: 'shield' }, [atk(10)]).s.stats.taken, 4);
-eq('盾Lv3 14: 攻撃10 → 0', run({ 0: 'shield3' }, [atk(10)]).s.stats.taken, 0);
-eq('盾+増幅 9: 攻撃10 → 1', run({ 0: 'shield', 1: 'amp' }, [atk(10)]).s.stats.taken, 1);
-{ const s = setup({ 0: 'dodge' }, [atk(10, 2)]); R.resolve(s); eq('回避: 2ヒットのうち1回よける', s.stats.taken, 10); eq('休み3', s.p.dodgeCd, 3); }
-function dodgeRun(cells, n) { const s = setup(cells); const out = []; for (let t = 0; t < n; t++) { I(s, [atk(10)]); const k = s.stats.taken; R.resolve(s); out.push(s.stats.taken - k); } return out; }
-eq('回避Lv1: よける→3ターン休む のくり返し', dodgeRun({ 0: 'dodge' }, 9), [0, 10, 10, 10, 0, 10, 10, 10, 0]);
-eq('回避Lv3: 1ターン休む', dodgeRun({ 0: 'dodge3' }, 4), [0, 10, 0, 10]);
-eq('回避+加速Lv2: 休み3-2=1', dodgeRun({ 0: 'dodge', 1: 'haste2' }, 4), [0, 10, 0, 10]);
-eq('回避+加速Lv3: 休みは1より短くならない', dodgeRun({ 0: 'dodge', 1: 'haste3' }, 4), [0, 10, 0, 10]);
-eq('回避が2個あっても 休みはいっしょ', dodgeRun({ 0: 'dodge', 4: 'dodge' }, 5), [0, 10, 10, 10, 0]);
-{ const r = run({ 12: 'slash', 13: 'leech' }, [atk(30)]); eq('吸収: HPが満タンなら回復0', r.s.stats.healed, 0); }
-{ const s = setup({ 12: 'slash', 13: 'leech' }); s.p.hp = 50; R.resolve(s); eq('吸収20%: 5の20% = 1回復', s.p.hp, 51); }
-{ const s = setup({ 12: 'slash2', 13: 'leech3', 14: 'amp' }); s.p.hp = 50; R.resolve(s); eq('吸収Lv3+増幅 60%: 8の60% = 4.8→5', s.p.hp, 55); }
-eq('堅牢2: 3×4回 → 1×4', run({ 0: 'tough' }, [atk(3, 4)]).s.stats.taken, 4);
-eq('堅牢Lv3 4: 3×4回 → 0', run({ 0: 'tough3' }, [atk(3, 4)]).s.stats.taken, 0);
-eq('反射50%: 盾6で防いで 3返す', dealt(run({ 0: 'shield', 1: 'mirror' }, [atk(10)]).s), 3);
-eq('反射は盾とつながないと働かない', dealt(run({ 0: 'shield', 2: 'mirror' }, [atk(10)]).s), 0);
-eq('反射Lv2 100%: 6', dealt(run({ 0: 'shield', 1: 'mirror2' }, [atk(10)]).s), 6);
-eq('反射は装甲でへる', dealt(run({ 0: 'shield', 1: 'mirror2' }, [atk(10)], { armor: 3 }).s), 3);
-eq('反射+貫通は装甲を無視', dealt(run({ 0: 'shield', 1: 'mirror2', 2: 'pierce' }, [atk(10)], { armor: 3 }).s), 6);
-{ const s = setup({ 0: 'regen' }); s.p.hp = 50; R.resolve(s); eq('再生 +3', s.p.hp, 53); }
-{ const s = setup({ 0: 'regen3', 1: 'amp' }); s.p.hp = 50; R.resolve(s); eq('再生Lv3+増幅: 7×1.5=10.5→11', s.p.hp, 61); }
-// ---- つながりの形
-eq('ななめは つながらない（斬撃）', dealt(run({ 12: 'slash', 18: 'amp' }).s), 5);
-eq('範囲は ななめも つながる: 3×1.5=4.5→5', dealt(run({ 12: 'area', 18: 'amp' }).s), 5);
-eq('範囲: 8マス全部の増幅 +400%', dealt(run({ 12: 'area', 6: 'amp', 7: 'amp', 8: 'amp', 11: 'amp', 13: 'amp', 16: 'amp', 17: 'amp', 18: 'amp' }).s), 15);
-eq('封印されたブロックは働かない', (() => { const s = setup({ 12: 'slash', 13: 'amp' }); s.board[13].sealed = 2; R.resolve(s); return dealt(s); })(), 5);
-eq('封印された攻撃は発動しない', (() => { const s = setup({ 12: 'slash' }); s.board[12].sealed = 1; R.resolve(s); return dealt(s); })(), 0);
-// ---- 発動の順番（左上から）
-eq('先に毒をつけて、あとで消費: 5 + 5 + 1×2', dealt(run({ 0: 'slash', 1: 'poison', 24: 'slash', 23: 'consume' }).s), 12);
-eq('順番が逆だと消費できない: 5+5+毒1', dealt(run({ 24: 'slash', 23: 'poison', 0: 'slash', 1: 'consume' }).s), 11);
-// ---- 敵の性質
-eq('身かわし2: 斬撃は0', dealt(run({ 12: 'slash' }, null, { evade: 2 }).s), 0);
-eq('身かわし2: 射撃+加速は3ヒット目が当たる', dealt(run({ 12: 'shot', 13: 'haste' }, null, { evade: 2 }).s), 2);
-eq('トゲ1: 射撃2ヒットで2ダメージ受ける', run({ 12: 'shot' }, null, { thorns: 1 }).s.stats.taken, 2);
-eq('トゲはシールドで防げる', run({ 12: 'shot', 0: 'shield' }, null, { thorns: 1 }).s.stats.taken, 0);
-{ const s = setup({ 12: 'slash' }, [{ k: 'curse', n: 3 }]); R.resolve(s); eq('呪い3: 3ダメージ', s.stats.taken, 3); eq('呪いは1へる', s.p.curse, 2); }
-{ const s = setup({ 12: 'shot', 13: 'poison' }, [{ k: 'cleanse' }]); R.resolve(s); eq('脱皮: 毒が消えてダメージなし', s.stats.dealt.poison || 0, 0); }
-{ const s = setup({ 12: 'slash', 13: 'amp' }, [{ k: 'seal', n: 1, dur: 2 }]); s.intent.cells.seal = [13]; R.resolve(s); eq('封印 2ターン', s.board[13].sealed, 2); R.resolve(s); eq('封印中は増幅なし', dealt(s), 8 + 5); R.resolve(s); R.resolve(s); eq('2ターンたつと もどる', dealt(s), 8 + 5 + 5 + 8); }
-{ const s = setup({ 12: 'slash' }, [{ k: 'destroy', n: 1 }]); s.intent.cells.destroy = [12]; R.resolve(s); eq('破壊: ブロックが消える', s.board[12], null); }
-{ const s = setup({ 12: 'slash' }, [{ k: 'rubble', n: 1 }]); s.intent.cells.rubble = [13]; s.board[13] = R.mk('amp'); R.resolve(s); eq('がれきは ふさがったマスには置かれない', s.board[13].type, 'amp'); }
-{ const s = setup({ 12: 'slash' }, [{ k: 'rubble', n: 1 }]); s.intent.cells.rubble = [13]; R.resolve(s); eq('がれきが置かれる', s.board[13].type, 'rubble'); s.shop[0] = 'amp'; eq('がれきの上に置ける', R.place(s, 0, 13), 'replace'); }
-{ const s = R.newGame('golem', 3); R.place(s, 0, 12); eq('ゴーレム1周目: なぐる16', s.intent.parts[0].dmg, 16); s.e.cyc = 2; s.e.si = 0; const it = R.makeIntent(s); eq('3周目は怒りで×1.4: (16+44)×1.4=84', it.parts[0].dmg, 84); }
+// ------------------------------------------------------------ 1. 形（凸と凹）
+eq('斬撃 rot0 の辺（上・右・下・左）', R.edges('slash', 0), [-1, 0, 0, -1]);
+eq('斬撃 rot1 は時計回りに回る', R.edges('slash', 1), [-1, -1, 0, 0]);
+eq('増幅 rot0 は凸が右', R.edges('amp', 0), [0, 1, 0, 0]);
+eq('増幅 rot1 は凸が下', R.edges('amp', 1), [0, 0, 1, 0]);
+eq('毒 rot1 は凹が上・凸が下', R.edges('poison', 1), [-1, 0, 1, 0]);
+for (const t of R.TYPES) {
+  const e = R.edges(t, 0), tabs = e.filter(x => x === 1).length, socks = e.filter(x => x === -1).length, f = R.B[t].fam;
+  ok(`形のきまり ${t}`, f === 'atk' || f === 'def' ? tabs === 0 && socks >= 1 : f === 'abil' ? tabs === 1 && socks === 1 : tabs === 1 && socks === 0);
+}
+eq('凸→凹で はまる（増幅の下に斬撃）', okLinks(mk([['amp', 1, 1], ['slash', 0, 6]])), '1>6');
+eq('凸が向いていない となりとは はまらない（増幅の右に斬撃。凸は下）', okLinks(mk([['amp', 1, 1], ['slash', 0, 2]])), '');
+eq('凸の先が平らな辺なら はまらない（増幅の凸は右、斬撃 rot2 の左は平ら）', okLinks(mk([['amp', 0, 5], ['slash', 2, 6]])), '');
+eq('凹と凹は はまらない', okLinks(mk([['slash', 0, 6], ['shield', 0, 5]])), '');
+eq('はなれていると はまらない', okLinks(mk([['amp', 1, 1], ['slash', 0, 11]])), '');
 
-// ---- 手のルール
-{ const s = R.newGame('golem', 5); eq('最初は攻撃ブロック3つから', s.shop.slice(0, 3), ['slash', 'shot', 'area']);
-  ok('最初の1個を置くとターン1', R.place(s, 0, 12) === 'new' && s.turn === 1 && s.phase === 'place');
-  eq('手数は予告どおり', s.moves, s.intent.moves);
-  const i = s.shop.findIndex(t => t && t !== 'slash'); const t = s.shop[i];
-  eq('空きマスに置く', R.place(s, i, 13), 'new'); eq('置いたものがある', s.board[13].type, t);
-  const m = s.moves; ok('入れかえは1手', R.swap(s, 12, 20) && s.moves === m - 1 && s.board[20].type === 'slash' && !s.board[12]);
-  const j = s.shop.findIndex(x => x); const kt = s.shop[j]; const m2 = s.moves; ok('キープは手数を使わない', R.toKeep(s, j) && s.keep === kt && s.moves === m2);
-  s.moves = 0; eq('手数0では置けない', R.placeKind(s, 'keep', 0), null); }
-{ const s = setup({ 12: 'slash' }); s.shop[0] = 'slash'; eq('同じ種類を重ねるとLv2', R.place(s, 0, 12), 'up'); eq('Lv2', s.board[12].lv, 2); s.shop[0] = 'slash'; R.place(s, 0, 12); s.shop[0] = 'slash'; s.moves = 3; eq('Lv3より上はない', R.placeKind(s, 0, 12), null);
-  s.shop[1] = 'shot'; eq('ちがう種類は置きかえ', R.place(s, 1, 12), 'replace'); eq('置きかえ後はLv1', s.board[12].lv, 1); }
+// ------------------------------------------------------------ 2. ひとりで働く（文の数字のまま）
+eq('斬撃 6ダメージ×1', go([['slash', 0, 6]]).dealt, 6);
+eq('射撃 2ダメージ×2', go([['shot', 0, 6]]).dealt, 4);
+eq('射撃は2ヒット', go([['shot', 0, 6]]).n('hit'), 2);
+eq('範囲攻撃 3ダメージ×1', go([['area', 0, 6]]).dealt, 3);
+eq('盾 シールド+7（攻撃10を受けて3）', go([['shield', 0, 6]], { parts: [A(10)] }).taken, 3);
+eq('盾 シールドはターンの終わりに消える', go([['shield', 0, 6]]).s.p.shield, 0);
+eq('堅牢 ヒット1回ごとに−2（3×3回 → 1×3）', go([['tough', 0, 6]], { parts: [A(3, 3)] }).taken, 3);
+eq('回避 最初のヒットを1回よける（10×2回 → 10）', go([['dodge', 0, 6]], { parts: [A(10, 2)] }).taken, 10);
+eq('強化は ひとりでは働かない（増幅だけ）', go([['amp', 0, 6]]).dealt, 0);
+eq('置いていないブロックは働かない', go([['slash', 0, null]]).dealt, 0);
 
-// ---- 文と数字がそろっているか
-for (const t of R.TYPES) for (let lv = 1; lv <= 3; lv++) {
-  const txt = R.blockText(t, lv), v = R.B[t].v[lv - 1];
+// ------------------------------------------------------------ 3. 強化（わたした相手を変える）
+eq('増幅→斬撃 2倍 = 12', go([['amp', 1, 1], ['slash', 0, 6]]).dealt, 12);
+eq('増幅2個→斬撃 = 18（+100% ずつ）', go([['amp', 1, 1], ['amp', 0, 5], ['slash', 0, 6]]).dealt, 18);
+eq('加速→斬撃 ヒット数+1 = 6×2', go([['haste', 1, 1], ['slash', 0, 6]]).dealt, 12);
+eq('加速→斬撃 は2ヒット', go([['haste', 1, 1], ['slash', 0, 6]]).n('hit'), 2);
+eq('加速→射撃 = 2×3', go([['haste', 0, 5], ['shot', 0, 6]]).dealt, 6);
+eq('増幅＋加速→斬撃 = 12×2', go([['amp', 1, 1], ['haste', 0, 5], ['slash', 0, 6]]).dealt, 24);
+eq('増幅→盾 = シールド14', go([['amp', 1, 1], ['shield', 0, 6]], { parts: [A(20)] }).taken, 6);
+eq('加速→盾 = もう1回働く（14）', go([['haste', 1, 1], ['shield', 0, 6]], { parts: [A(20)] }).taken, 6);
+eq('増幅→堅牢 = −4', go([['amp', 1, 1], ['tough', 0, 6]], { parts: [A(5, 2)] }).taken, 2);
+eq('増幅→回避 = 2回よける', go([['amp', 1, 1], ['dodge', 0, 6]], { parts: [A(10, 3)] }).taken, 10);
+eq('加速→回避 = 2回よける', go([['haste', 1, 1], ['dodge', 0, 6]], { parts: [A(10, 3)] }).taken, 10);
+eq('貫通→斬撃 装甲を無視', go([['pierce', 1, 1], ['slash', 0, 6]], { e: { armor: 3 } }).dealt, 6);
+eq('貫通なしなら 装甲3で 6→3', go([['slash', 0, 6]], { e: { armor: 3 } }).dealt, 3);
+eq('貫通→斬撃 結界を無視', go([['pierce', 1, 1], ['slash', 0, 6]], { e: { guard: 10 } }).dealt, 6);
+eq('貫通なしなら 結界10で 0', go([['slash', 0, 6]], { e: { guard: 10 } }).dealt, 0);
+eq('効果変換→斬撃 最初のヒットに＋シールド（6+7）', go([['convert', 1, 1], ['slash', 0, 6], ['shield', 0, 13]]).dealt, 13);
+eq('効果変換は最初のヒットだけ（加速つき 13+6）', go([['convert', 1, 1], ['haste', 0, 5], ['slash', 0, 6], ['shield', 0, 13]]).dealt, 19);
+eq('反撃→斬撃 敵のヒットごとに半分の力（6 + 3×2回まで）', go([['counter', 1, 1], ['slash', 0, 6]], { parts: [A(1, 3)] }).dealt, 12);
+eq('反撃は 敵が攻撃しなければ出ない', go([['counter', 1, 1], ['slash', 0, 6]]).dealt, 6);
+eq('反射→盾 防いだ7の50% = 4（四捨五入）', go([['mirror', 1, 1], ['shield', 0, 6]], { parts: [A(10)] }).dealt, 4);
+eq('反射→堅牢 防いだ分（2×3回=6）の50% = 3', go([['mirror', 1, 1], ['tough', 0, 6]], { parts: [A(5, 3)] }).dealt, 3);
+eq('吸収→斬撃 与えた6の30% = 2回復', go([['leech', 1, 1], ['slash', 0, 6]], { p: { hp: 50 } }).s.p.hp, 52);
+eq('吸収→盾 防いだ7の30% = 2回復（10受けて3へり、2もどる）', go([['leech', 1, 1], ['shield', 0, 6]], { p: { hp: 50 }, parts: [A(10)] }).s.p.hp, 49);
+eq('持続強化→盾 シールドが50%残る（7→3）', go([['sustain', 1, 1], ['shield', 0, 6]]).s.p.shield, 3);
+eq('持続強化→毒 このターンは へらない（3+1=4 のまま）', go([['sustain', 1, 1], ['poison', 1, 6]], { e: { poison: 3 } }).s.e.poison, 4);
+eq('持続強化なしなら 毒は半分（4→2）', go([['poison', 1, 6]], { e: { poison: 3 } }).s.e.poison, 2);
+eq('持続強化→炎 50%残る（3+1=4 → 2）', go([['sustain', 2, 7], ['fire', 1, 6]], { e: { fire: 3 } }).s.e.fire, 2);
+eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire: 3 } }).s.e.fire, 0);
+{ // 拡散：能力が 全部の攻撃・防御に とどく
+  const r = go([['spread', 1, 1], ['poison', 1, 6], ['slash', 0, 13], ['shot', 0, 18]]);
+  eq('拡散→毒：斬撃1ヒット＋射撃2ヒットで 毒+2 が3回', r.gifts('poison'), 3);
+  eq('拡散→毒：毒ブロックは自分では働かない（順番の札は2つだけ）', R.derive(mk([['spread', 1, 1], ['poison', 1, 6], ['slash', 0, 13], ['shot', 0, 18]])).order, [13, 18]);
+  const r2 = go([['spread', 1, 1], ['poison', 1, 6], ['shield', 0, 13]], { parts: [A(1, 4)] });
+  eq('拡散→毒：盾にも とどく（敵の4ヒットで 毒+2 が4回）', r2.gifts('poison'), 4);
+  eq('拡散→毒：攻撃も防御もなければ、自分で1回', go([['spread', 1, 1], ['poison', 1, 6]]).gifts('poison'), 1);
+}
+{ // 効かない組：はまっても何も起きない（線は「効かない」になる）
+  eq('貫通→盾 は効かない', okLinks(mk([['pierce', 1, 1], ['shield', 0, 6]])), '1>6×');
+  eq('拡散→斬撃 は効かない', okLinks(mk([['spread', 1, 1], ['slash', 0, 6]])), '1>6×');
+  eq('反射→回避 は効かない', okLinks(mk([['mirror', 1, 1], ['dodge', 0, 6]])), '1>6×');
+  eq('持続強化→斬撃 は効かない', okLinks(mk([['sustain', 1, 1], ['slash', 0, 6]])), '1>6×');
+  eq('効かない強化は「働いていない」', R.summary(R.derive(mk([['pierce', 1, 1], ['shield', 0, 6]])), 1).idle, true);
+  eq('効く強化は「働いている」', R.summary(R.derive(mk([['amp', 1, 1], ['shield', 0, 6]])), 1).idle, false);
+  eq('貫通→盾 でも盾はふつうに働く', go([['pierce', 1, 1], ['shield', 0, 6]], { parts: [A(10)] }).taken, 3);
+}
+
+// ------------------------------------------------------------ 4. 能力：ひとり＝1回／攻撃に わたす＝ヒットごと／防御に わたす＝敵のヒットごと
+{
+  const solo = go([['poison', 1, 6]]);
+  eq('毒 ひとり：半分の力で1回（毒+1。ターンの終わりに1ダメージ）', [solo.gifts('poison'), solo.dealt], [1, 1]);
+  eq('ひとりは半分・切り上げ（毒 Lv2 は 3 → 2）', go([['poison', 1, 6]], { lv: { poison: 2 } }).dealt, 2);
+  eq('ひとりは半分（増幅つきの毒 4 → 2）', go([['amp', 1, 1], ['poison', 1, 6]]).dealt, 2);
+  eq('わたせば 半分にならない（毒→斬撃：6 + 毒2）', go([['poison', 1, 1], ['slash', 0, 6]]).dealt, 8);
+  const a = go([['poison', 0, 5], ['shot', 0, 6]]);
+  eq('毒→射撃：ヒットごとに毒+2（2ヒットで4。4ダメージ＋毒4）', [a.gifts('poison'), a.dealt, a.s.e.poison], [2, 8, 2]);
+  const dfn = go([['poison', 1, 1], ['shield', 0, 6]], { parts: [A(1, 3)] });
+  eq('毒→盾：敵のヒット1回ごとに毒+2（3ヒットで6）', [dfn.gifts('poison'), dfn.dealt], [3, 6]);
+  eq('毒→盾：敵が攻撃しないターンは 0回', go([['poison', 1, 1], ['shield', 0, 6]]).gifts('poison'), 0);
+  const one = go([['poison', 1, 1], ['slash', 0, 6]]);
+  eq('わたした毒は 自分では働かない（斬撃1ヒットで 毒+2 は1回だけ）', one.gifts('poison'), 1);
+  eq('毒→堅牢 でも 敵のヒットごと', go([['poison', 1, 1], ['tough', 0, 6]], { parts: [A(1, 4)] }).gifts('poison'), 4);
+  eq('毒→回避：よけたヒットでも働く', go([['poison', 1, 1], ['dodge', 0, 6]], { parts: [A(9, 2)] }).gifts('poison'), 2);
+}
+{ // 受け取ったものは、次へは わたらない
+  const r = go([['amp', 1, 1], ['poison', 1, 6], ['slash', 0, 11]]);
+  eq('増幅→毒→斬撃：斬撃は6のまま（増幅は斬撃に とどかない）', r.ev.filter(x => x.t === 'hit')[0].dmg, 6);
+  eq('増幅→毒→斬撃：毒は自分の数字が2倍（ヒットで毒+4）', r.ev.filter(x => x.t === 'gift')[0].n, 4);
+  const s = mk([['poison', 2, 7], ['fire', 1, 6], ['slash', 0, 11]]);
+  eq('毒→炎→斬撃：炎は斬撃へ。毒は炎に とどかない（効かない線）', okLinks(s), '6>11 7>6×');
+  const q = go([['poison', 2, 7], ['fire', 1, 6], ['slash', 0, 11]]);
+  eq('毒→炎→斬撃：毒は ひとりで1回、炎は斬撃のヒットで1回', [q.gifts('poison'), q.gifts('fire')], [1, 1]);
+  const t = go([['poison', 2, 7], ['fire', 1, 6]]);
+  eq('毒→炎（炎が自分で働く）：炎+1 と 毒+2 が いっしょに1回ずつ', [t.gifts('poison'), t.gifts('fire'), R.derive(mk([['poison', 2, 7], ['fire', 1, 6]])).order], [1, 1, [6]]);
+  const h = go([['haste', 1, 1], ['poison', 1, 6]]);
+  eq('加速→毒（ひとり）：もう1回働く（毒+2 が2回）', h.gifts('poison'), 2);
+  const h2 = go([['haste', 1, 1], ['poison', 1, 6], ['slash', 0, 11]]);
+  eq('加速→毒→斬撃：ヒットごとに2回', h2.gifts('poison'), 2);
+}
+// それぞれの能力
+eq('炎 ひとり → あとの射撃2ヒットが +1 ずつ（3+3）', go([['fire', 1, 0], ['shot', 0, 6]]).dealt, 6);
+eq('炎→射撃：1ヒット目のあと炎1（2 + 3）', go([['fire', 0, 5], ['shot', 0, 6]]).dealt, 5);
+eq('炎は たまる（ヒットごとに+1。加速つき射撃 2+3+4）', go([['fire', 0, 5], ['haste', 2, 7], ['shot', 0, 6]]).dealt, 9);
+eq('炎は 装甲でへる（装甲2：2+1−2 = 1 が2回）', go([['fire', 1, 0], ['shot', 0, 6]], { e: { armor: 2 } }).dealt, 2);
+{
+  const r = go([['ice', 1, 6]], { e: { ice: 7 }, parts: [A(10)] });
+  eq(`氷 ${R.FREEZE_AT}たまると凍結：攻撃10が半分`, [r.taken, r.s.e.ice, r.n('freeze')], [5, 0, 1]);
+  eq('氷 たりなければ凍結しない', go([['ice', 1, 6]], { e: { ice: 3 }, parts: [A(10)] }).taken, 10);
+  const m = go([['ice', 1, 1], ['shield', 0, 6]], { e: { ice: 6 }, parts: [A(10, 3)] });
+  eq('氷→盾：1ヒット目のあとで凍結 → のこりの2ヒットが半分（10−7=3、5、5）', m.taken, 13);
+  const sh = go([['shock', 1, 6]], { e: { shock: 7 } });
+  eq(`雷 ${R.SHOCK_AT}たまると感電：${R.SHOCK_DMG}ダメージ、次のターン1個多く引く`, [sh.dealt, sh.s.drawBonus, sh.s.e.shock], [10, 1, 0]);
+  eq('雷 たりなければ感電しない', go([['shock', 1, 6]], { e: { shock: 3 } }).dealt, 0);
+  eq('感電は1ターンに1回', go([['amp', 0, 5], ['shock', 1, 6]], { e: { shock: 14 } }).n('shock'), 1);
+}
+eq('再生 ひとり：半分の力（HP+1）', go([['regen', 1, 6]], { p: { hp: 50 } }).s.p.hp, 51);
+eq('再生→射撃：ヒットごとにHP+2', go([['regen', 0, 5], ['shot', 0, 6]], { p: { hp: 50 } }).s.p.hp, 54);
+eq('再生→盾：敵のヒットごとにHP+2（1×3回はシールドで防いで +6）', go([['regen', 1, 1], ['shield', 0, 6]], { p: { hp: 50 }, parts: [A(1, 3)] }).s.p.hp, 56);
+eq('再生は最大HPをこえない', go([['regen', 1, 6]]).s.p.hp, 100);
+eq('追撃 ひとり：半分の力（1ダメージのヒット）', go([['chase', 1, 6]]).dealt, 1);
+eq('追撃→斬撃：敵の状態1種類ごとに+2（毒あり → 斬撃6 + 追撃4 + 毒3）', go([['chase', 1, 6], ['slash', 0, 11]], { e: { poison: 3 } }).dealt, 13);
+eq('追撃→斬撃：状態3種類なら 2×4 = 8（炎1がのって9）', go([['chase', 1, 6], ['slash', 0, 11]], { e: { ice: 1, shock: 1, fire: 1 } }).ev.filter(x => x.t === 'hit' && x.kind === 'chase')[0].dmg, 8 + 1);
+eq('追撃→斬撃：ヒットごとに追加ヒット（6+2）', go([['chase', 1, 6], ['slash', 0, 11]]).dealt, 8);
+eq('追撃→盾：敵のヒットごとに追加ヒット（2×3）', go([['chase', 1, 6], ['shield', 0, 11]], { parts: [A(1, 3)] }).dealt, 6);
+eq('貫通→追撃→盾：追撃のヒットが装甲を無視（2×2回）', go([['pierce', 2, 7], ['chase', 1, 6], ['shield', 0, 11]], { e: { armor: 3 }, parts: [A(1, 2)] }).dealt, 4);
+eq('貫通なしの追撃は 装甲3で 0', go([['chase', 1, 6], ['shield', 0, 11]], { e: { armor: 3 }, parts: [A(1, 2)] }).dealt, 0);
+eq('毒消費→斬撃：毒5を全部消して ×2 = 10（斬撃6とで16。毒は0になる）', (r => [r.dealt, r.s.e.poison])(go([['consume', 0, 5], ['slash', 0, 6]], { e: { poison: 5 } })), [16, 0]);
+eq('毒消費 ひとり：半分の力（×1）', (r => [r.dealt, r.s.e.poison])(go([['consume', 1, 6]], { e: { poison: 5 } })), [5, 0]);
+eq('毒消費：毒がなければ 0', go([['consume', 1, 6]]).dealt, 0);
+eq('順番：毒つき斬撃が先、毒消費つき斬撃が後（6 + 6 + 2×2）', go([['poison', 0, 0], ['slash', 0, 1], ['consume', 0, 5], ['slash', 0, 6]]).dealt, 16);
+eq('順番：毒消費つき斬撃が先だと消費できない（6 + 6 + 毒2）', go([['consume', 0, 0], ['slash', 0, 1], ['poison', 0, 5], ['slash', 0, 6]]).dealt, 14);
+{
+  const r = go([['charge', 1, 6]]);
+  eq('蓄積 ひとり：半分の力（たまり+2。次のターンから使える）', [r.s.p.charge, r.dealt], [2, 0]);
+  eq('たまり：最初に当たったヒットに ぜんぶ のる（6+5）、使うと0', (x => [x.dealt, x.s.p.charge])(go([['slash', 0, 6]], { p: { charge: 5 } })), [11, 0]);
+  eq('たまり：よけられたヒットでは へらない（狩人。射撃2ヒットをよけられ、斬撃 6+5）', go([['shot', 0, 1], ['slash', 0, 6]], { p: { charge: 5 }, e: { evade: 2 } }).dealt, 11);
+  eq('たまり：このターンに ためた分は、このターンには のらない', go([['charge', 1, 0], ['slash', 0, 6]]).dealt, 6);
+  eq('蓄積→盾：敵のヒットごとに たまり+3', go([['charge', 1, 1], ['shield', 0, 6]], { parts: [A(1, 4)] }).s.p.charge, 12);
+}
+eq('発動の順：左上から（攻撃と、自分で働く能力）', R.derive(mk([['slash', 0, 13], ['poison', 1, 2], ['shot', 0, 6], ['amp', 1, 8], ['shield', 0, 0]])).order, [2, 6, 13]);
+
+// ------------------------------------------------------------ 5. レベル（種類ごと）
+eq('斬撃 Lv2 = 9', go([['slash', 0, 6]], { lv: { slash: 2 } }).dealt, 9);
+eq('斬撃 Lv3 = 12', go([['slash', 0, 6]], { lv: { slash: 3 } }).dealt, 12);
+eq('増幅 Lv2 = 2.5倍（6→15）', go([['amp', 1, 1], ['slash', 0, 6]], { lv: { amp: 2 } }).dealt, 15);
+eq('加速 Lv2 = ヒット数+2', go([['haste', 1, 1], ['slash', 0, 6]], { lv: { haste: 2 } }).dealt, 18);
+eq('貫通 Lv2 = さらにヒット+3', go([['pierce', 1, 1], ['slash', 0, 6]], { lv: { pierce: 2 }, e: { armor: 3 } }).dealt, 9);
+eq('盾 Lv2 = 10', go([['shield', 0, 6]], { lv: { shield: 2 }, parts: [A(10)] }).taken, 0);
+eq('毒 Lv3 = 毒+4（毒→斬撃：6 + 毒4）', go([['poison', 1, 1], ['slash', 0, 6]], { lv: { poison: 3 } }).dealt, 10);
+eq('持続強化 Lv2：シールド75%残る（7→5）', go([['sustain', 1, 1], ['shield', 0, 6]], { lv: { sustain: 2 } }).s.p.shield, 5);
+for (const t of R.TYPES) for (let lv = 1; lv <= R.maxLv(t); lv++) {
+  const v = R.B[t].v[lv - 1], txt = R.blockText(t, lv);
   ok(`文に数字が入っている ${t} Lv${lv}`, v === 0 || txt.indexOf(String(v)) >= 0, txt);
 }
-eq('ブロックは24種類', R.TYPES.length, 24);
-// つながりの表は左右対称で、強化どうしは つながらない
-for (const a of R.TYPES) for (const b of R.TYPES) {
-  ok(`works 対称 ${a}/${b}`, R.works(a, b) === R.works(b, a));
-  if (R.B[a].fam === 'enh' && R.B[b].fam === 'enh') ok(`強化どうしは無関係 ${a}/${b}`, !R.works(a, b));
-}
-// 置く前の「つながる」表示（linksIfPlaced / linksIfSwapped / bestLinks）
-{
-  const s = setup({ 12: 'slash' }), b = s.board;
-  eq('置く前：毒を斬撃のとなりに → つながる', R.linksIfPlaced(b, 'poison', 13), [12]);
-  eq('置く前：毒を1マスあけて → つながらない', R.linksIfPlaced(b, 'poison', 14), []);
-  eq('置く前：毒を ななめに → つながらない', R.linksIfPlaced(b, 'poison', 6), []);
-  eq('置く前：増幅を斬撃のとなりに → つながる', R.linksIfPlaced(b, 'amp', 13), [12]);
-  eq('置く前：拡散を斬撃のとなりに → つながらない（相手は属性だけ）', R.linksIfPlaced(b, 'spread', 13), []);
-  eq('置く前：盾を斬撃のとなりに → つながらない', R.linksIfPlaced(b, 'shield', 13), []);
-  eq('置く前：いちばん多い数（毒）は1', R.bestLinks(b, 'poison'), 1);
-  eq('置く前：相手がいない札（拡散）は0', R.bestLinks(b, 'spread'), 0);
-  eq('置く前の計算は盤面を変えない', JSON.stringify(b), JSON.stringify(setup({ 12: 'slash' }).board));
-  const a = setup({ 12: 'area' }).board;
-  eq('置く前：範囲攻撃には ななめでも つながる', R.linksIfPlaced(a, 'poison', 6), [12]);
-  const two = setup({ 12: 'slash', 14: 'shot' }).board;
-  eq('置く前：攻撃2つの間に毒 → 2本', R.linksIfPlaced(two, 'poison', 13).sort((x, y) => x - y), [12, 14]);
-  eq('置く前：いちばん多い数は2', R.bestLinks(two, 'poison'), 2);
-  const st = setup({ 12: 'slash', 13: 'poison' }).board;
-  eq('置く前：同じ種類に重ねても つながりは同じ', R.linksIfPlaced(st, 'slash', 12), [13]);
-  eq('置く前：ちがう種類で置きかえると、新しい札のつながりになる', R.linksIfPlaced(st, 'shield', 13), []);
-  const sl = setup({ 12: 'slash' }).board; sl[12].sealed = 2;
-  eq('置く前：封印中の札とは つながらない', R.linksIfPlaced(sl, 'poison', 13), []);
-  const mx = setup({ 12: 'slash3' }).board;
-  eq('置く前：Lv3の同じ種類しかないとき、そのマスは数えない', R.bestLinks(mx, 'slash'), 0);
-  const sw = setup({ 12: 'slash', 0: 'poison' }).board;
-  eq('入れかえる前：毒を斬撃のとなりへ → つながる', R.linksIfSwapped(sw, 0, 13), [12]);
-  eq('入れかえる前：毒を遠くへ → つながらない', R.linksIfSwapped(sw, 0, 24), []);
-  eq('入れかえる前：毒と斬撃を入れかえると、はなれる', R.linksIfSwapped(sw, 0, 12), []);
-}
-// 数字を出すマス（linkSpots / swapSpots）：空き・がれき。満杯のときは置きかえ
-{
-  const cells = a => a.map(x => x.cell).sort((x, y) => x - y);
-  eq('数字のマス：空きマスだけ（札のあるマスは出さない）', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield' }).board, 'poison')), [7, 11, 17]);
-  eq('数字のマス：がれきのマスは出す', cells(R.linkSpots(setup({ 12: 'slash', 13: 'rubble' }).board, 'poison')), [7, 11, 13, 17]);
-  const full = {}; for (let i = 0; i < R.N; i++) full[i] = 'shield'; full[12] = 'slash';
-  eq('数字のマス：満杯のときは、置きかえで つながるマスを出す', cells(R.linkSpots(setup(full).board, 'poison')), [7, 11, 13, 17]);
-  eq('満杯でも、いちばん多い数が出る', R.bestLinks(setup(full).board, 'poison'), 1);
-  const fullRub = Object.assign({}, full, { 13: 'rubble' });
-  eq('数字のマス：ほかが満杯で がれきが1つ → がれきのマスだけ', R.linkSpots(setup(fullRub).board, 'poison'), [{ cell: 13, n: 1 }]);
-  const full3 = Object.assign({}, full, { 13: 'poison3' });
-  ok('数字のマス：満杯で、Lv3の同じ種類のマスは出さない', cells(R.linkSpots(setup(full3).board, 'poison')).indexOf(13) < 0);
-  eq('入れかえの数字のマス', cells(R.swapSpots(setup({ 12: 'slash', 0: 'poison' }).board, 0)), [7, 11, 13, 17]);
-  const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
-  eq('入れかえの数字のマス：封印中の札は出さない', R.swapSpots(sealed, 0), []);
-}
-// 空きはあるが、空きでは どこにも つながらないとき → 置きかえで つながるマスを出す（レビュー2回目の指摘1）
-{
-  const cells = a => a.map(x => x.cell).sort((x, y) => x - y);
-  const one = {}; for (let i = 1; i < R.N; i++) one[i] = 'shield'; one[12] = 'slash'; // マス0だけ空き
-  eq('数字のマス：空きでは つながらない → 置きかえのマスを出す', cells(R.linkSpots(setup(one).board, 'poison')), [7, 11, 13, 17]);
-  eq('数字のマス：空きと同じ数しか つながらない置きかえ先は出さない', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield', 14: 'shield' }).board, 'poison')), [7, 11, 17]);
-  eq('そのときも、棚の数字は0にならない', R.bestLinks(setup(one).board, 'poison'), 1);
-  const mv = Object.assign({}, one, { 20: 'poison' });
-  eq('入れかえも同じ：空きでは つながらない → 入れかえ先を出す', cells(R.swapSpots(setup(mv).board, 20)), [7, 11, 13, 17]);
-  eq('空きで つながるマスがあるときは、空きだけ', cells(R.linkSpots(setup({ 12: 'slash', 13: 'shield' }).board, 'poison')), [7, 11, 17]);
-}
-// 棚の数字は「置けるマス全部の中の最大」と同じ。置きかえた方が多く つながる所は、数字を出す（レビュー3回目の指摘1）
-{
-  const cells = a => a.map(x => x.cell + ':' + x.n).join(' ');
-  const g = {}; for (let i = 0; i < R.N; i++) g[i] = 'shield'; delete g[6]; g[11] = 'slash'; g[13] = 'slash'; // 6だけ空き、11と13が斬撃
-  const b = setup(g).board;
-  eq('空きで つながる所があるとき、札の上には数字を出さない（置きかえの方が多くても）', cells(R.linkSpots(b, 'poison')), '6:1');
-  eq('いちばん多い数（棚の点線の判定に使う）は、置きかえをふくめた最大', R.bestLinks(b, 'poison'), 2);
-  eq('置きかえても同じ数の所は出さない（札の上を数字だらけにしない）', R.linkSpots(b, 'poison').some(x => x.cell === 16), false);
-  // 入れかえも同じ決まり（レビュー4回目の指摘2）：0の毒を動かす。空き6は1本、札のある12は2本 → 両方出す
-  const m = setup(Object.assign({}, g, { 0: 'poison' })).board;
-  eq('入れかえ：空きで つながる所があるとき、札の上には出さない', cells(R.swapSpots(m, 0)), '6:1');
-  eq('入れかえの光る相手は、数字のマスの相手だけ', R.swapMates(m, 0), [11]);
-  // 小さい数字は、重ね（レベルアップ）先にも出る。がれきは、つながるなら空きより少なくても出る（レビュー4回目の指摘1）
-  const up = setup(Object.assign({}, g, { 12: 'poison' })).board;
-  eq('重ねる先（同じ種類）にも、空きで つながる所があるときは出さない', cells(R.linkSpots(up, 'poison')), '6:1');
-  const rb = Object.assign({}, g, { 6: 'rubble' }); delete rb[12];
-  eq('がれきは、空きより少なくても出る', cells(R.linkSpots(setup(rb).board, 'poison')), '6:1 12:2');
-  // 棚の数字は、置けるマス全部を1つずつ数えた最大と、いつも同じ（でたらめな盤面300個）
-  let x = 7, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
-  const kinds = R.TYPES.concat(['rubble']);
-  for (let t = 0; t < 300; t++) {
-    const s = setup({}); const fill = rnd();
-    for (let i = 0; i < R.N; i++) if (rnd() < fill) { const k = R.mk(kinds[(rnd() * kinds.length) | 0]); k.lv = 1 + ((rnd() * 3) | 0); if (rnd() < 0.08) k.sealed = 2; s.board[i] = k; }
-    for (const type of R.TYPES) {
-      let max = 0;
-      for (let i = 0; i < R.N; i++) { const c = s.board[i]; if (c && c.type === type && c.lv >= R.MAXLV) continue; max = Math.max(max, R.linksIfPlaced(s.board, type, i).length); }
-      if (R.bestLinks(s.board, type) !== max) bad++;
-      const sp = R.linkSpots(s.board, type), openHit = sp.some(x => !s.board[x.cell] || s.board[x.cell].type === 'rubble');
-      if (openHit && sp.some(x => s.board[x.cell] && s.board[x.cell].type !== 'rubble')) bad++; // 空きに出るときは、札の上に出さない
-      if (!sp.length && max > 0) bad++; // つながる所があるのに、数字のマスが1つもない、は起きない
-      for (const sp of R.linkSpots(s.board, type)) if (R.linksIfPlaced(s.board, type, sp.cell).length !== sp.n) bad++;
-    }
-  }
-  eq('いちばん多い数＝置けるマス全部の最大／数字のマスの決まり（でたらめな盤面300個×24種類）', bad, 0);
-}
-// 光らせる相手（linkMates / swapMates）は、本当に つながる札だけ（レビュー2回目の指摘2）
-{
-  eq('光る相手：斬撃に毒', R.linkMates(setup({ 12: 'slash' }).board, 'poison'), [12]);
-  eq('光る相手：盾のない反射と貫通 → 光らない（表では合うが、つながらない）', R.linkMates(setup({ 12: 'pierce' }).board, 'mirror'), []);
-  ok('表では 反射と貫通は合う', R.works('mirror', 'pierce'));
-  eq('光る相手：盾があれば、反射の相手として盾も貫通も光る', R.linkMates(setup({ 12: 'pierce', 14: 'shield' }).board, 'mirror'), [12, 14]);
-  eq('光る相手：合う札でも、封印中は光らない', R.linkMates((() => { const b = setup({ 12: 'slash' }).board; b[12].sealed = 2; return b; })(), 'poison'), []);
-  eq('光る相手：合わない札は光らない', R.linkMates(setup({ 12: 'slash', 14: 'shield' }).board, 'poison'), [12]);
-  eq('入れかえの光る相手', R.swapMates(setup({ 12: 'slash', 0: 'poison' }).board, 0), [12]);
-  const sealed = setup({ 12: 'slash', 0: 'poison' }).board; sealed[0].sealed = 2;
-  eq('入れかえの光る相手：封印中の札を選んだとき → なし', R.swapMates(sealed, 0), []);
-}
-// 「効いている」の計算（derive の live / LL / liveLinks）。線は、両はしが効いているときだけ「効いている線」
-{
-  const D = c => R.derive(setup(c).board);
-  const key = l => l.map(p => p.join('-')).join(' ');
-  let d = D({ 12: 'poison', 13: 'amp' });
-  eq('攻撃のない毒＋増幅：つながってはいる', key(d.links), '12-13');
-  eq('攻撃のない毒＋増幅：効いている線はない', key(d.liveLinks), '');
-  eq('攻撃のない毒＋増幅：どちらも働いていない', [d.live[12], d.live[13]], [false, false]);
-  eq('置く前：攻撃のない毒のとなりに増幅 → 0本', R.linksIfPlaced(setup({ 12: 'poison' }).board, 'amp', 13), []);
-  d = D({ 11: 'slash', 12: 'poison', 13: 'amp' });
-  eq('斬撃＋毒＋増幅：2本とも効いている', key(d.liveLinks), '11-12 12-13');
-  eq('斬撃＋毒＋増幅：全部働いている', [d.live[11], d.live[12], d.live[13]], [true, true, true]);
-  eq('置く前：斬撃を置くと、毒と1本（毒と増幅の線は、数に入れない）', R.linksIfPlaced(setup({ 12: 'poison', 13: 'amp' }).board, 'slash', 11), [12]);
-  d = D({ 12: 'slash' });
-  eq('攻撃はひとりで働く', d.live[12], true);
-  d = D({ 0: 'shield', 1: 'tough', 2: 'regen', 3: 'dodge', 10: 'leech', 20: 'mirror', 22: 'chase', 24: 'charge' });
-  eq('盾・堅牢・再生・回避はひとりで働く', [d.live[0], d.live[1], d.live[2], d.live[3]], [true, true, true, true]);
-  eq('吸収・反射・追撃は、相手がいないと働かない', [d.live[10], d.live[20], d.live[22]], [false, false, false]);
-  eq('蓄積は、ひとりでも働いている（たまりがふえる）', d.live[24], true);
-  { const c = setup({ 24: 'charge' }); R.resolve(c); ok('　ひとりの蓄積は、ターンのあと たまりがふえている', c.board[24].charge > 0); }
-  d = D({ 12: 'chase', 13: 'haste' });
-  eq('攻撃のない追撃＋加速：効いていない', [d.live[12], d.live[13], key(d.liveLinks)], [false, false, '']);
-  d = D({ 11: 'slash', 12: 'chase', 13: 'haste' });
-  eq('斬撃＋追撃＋加速：効いている', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '11-12 12-13']);
-  d = D({ 12: 'dodge', 13: 'haste' });
-  eq('回避＋加速：効いている', [d.live[13], key(d.liveLinks)], [true, '12-13']);
-  d = D({ 12: 'shield', 13: 'sustain' });
-  eq('盾＋持続強化：効いている', [d.live[13], key(d.liveLinks)], [true, '12-13']);
-  d = D({ 12: 'poison', 13: 'sustain' });
-  eq('攻撃のない毒＋持続強化、敵に毒なし：効いていない', [d.live[12], d.live[13], key(d.liveLinks)], [false, false, '']);
-  d = R.derive(setup({ 12: 'poison', 13: 'sustain' }).board, { poison: 10, fire: 0 });
-  eq('攻撃のない毒＋持続強化、敵に毒あり：効いている（毒のへる量が小さくなる）', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '12-13']);
-  { const a = setup({ 12: 'poison', 13: 'sustain' }, [], { poison: 10 }), b = setup({ 12: 'poison' }, [], { poison: 10 }); R.resolve(a); R.resolve(b);
-    ok('　そのとき、ターンのあとの毒は 持続強化があるほうが多い', a.e.poison > b.e.poison, `${a.e.poison} / ${b.e.poison}`); }
-  d = R.derive(setup({ 0: 'slash', 1: 'poison', 12: 'poison', 13: 'sustain' }).board);
-  eq('別の毒が攻撃にのっている：はなれた毒＋持続強化も効いている', [d.live[12], d.live[13]], [true, true]);
-  d = R.derive(setup({ 12: 'fire', 13: 'sustain' }).board, { poison: 10, fire: 0 });
-  eq('敵にあるのは毒だけ：炎＋持続強化は効いていない', [d.live[12], d.live[13]], [false, false]);
-  // 持続強化で もっているだけの毒に、増幅をつないでも効かない（レビューの指摘）
-  d = R.derive(setup({ 11: 'amp', 12: 'poison', 13: 'sustain' }).board, { poison: 10, fire: 0 });
-  eq('敵に毒・攻撃なし：毒と持続強化の線だけ効いている。増幅は効いていない', [key(d.liveLinks), d.live[11]], ['12-13', false]);
-  { const a = setup({ 11: 'amp', 12: 'poison', 13: 'sustain' }, [], { poison: 10 }), b = setup({ 12: 'poison', 13: 'sustain' }, [], { poison: 10 }); R.resolve(a); R.resolve(b);
-    eq('　そのとき、増幅が あっても なくても、ターンのあとの毒は同じ', a.e.poison, b.e.poison); }
-  d = R.derive(setup({ 10: 'slash', 11: 'amp', 12: 'poison', 13: 'sustain' }).board);
-  eq('攻撃があるが、毒は攻撃に のっていない：増幅と毒の線は効いていない（増幅と斬撃の線は効いている）', key(d.liveLinks), '10-11');
-  d = R.derive(setup({ 7: 'slash', 11: 'amp', 12: 'poison' }).board);
-  eq('毒が攻撃に のっている：増幅と毒の線は効いている', key(d.liveLinks), '7-12 11-12');
-  // 炎も同じ（文のとおり：持続強化 Lv1 で、へる量が 1/2）。封印された持続強化は効かない
-  { const a = setup({ 12: 'fire', 13: 'sustain' }, [], { fire: 10 }), b = setup({ 12: 'fire' }, [], { fire: 10 }), c = setup({ 12: 'fire', 13: 'sustain' }, [], { fire: 10 }); c.board[13].sealed = 2;
-    eq('敵に炎10・炎＋持続強化：効いている', R.derive(a.board, a.e).live.filter(x => x).length, 2);
-    eq('　封印された持続強化：炎も持続強化も効いていない', R.derive(c.board, c.e).live.filter(x => x).length, 0);
-    R.resolve(a); R.resolve(b); R.resolve(c);
-    eq('　ターンのあとの炎：持続強化あり5 / なし0 / 封印中0', [a.e.fire, b.e.fire, c.e.fire], [5, 0, 0]); }
-  // 棚の点線（canWork）：置いても働かないときだけ
-  eq('棚：蓄積は、何もない盤面でも働く（点線にしない）', R.canWork(setup({}).board, 'charge'), true);
-  eq('棚：吸収は、攻撃がないと働かない', R.canWork(setup({}).board, 'leech'), false);
-  eq('棚：吸収は、攻撃があれば働く', R.canWork(setup({ 12: 'slash' }).board, 'leech'), true);
-  eq('棚：反射は、盾がないと働かない', [R.canWork(setup({ 12: 'slash' }).board, 'mirror'), R.canWork(setup({ 12: 'shield' }).board, 'mirror')], [false, true]);
-  eq('棚：持続強化は、敵に毒があって毒ブロックがあれば働く', [R.canWork(setup({ 12: 'poison' }).board, 'sustain'), R.canWork(setup({ 12: 'poison' }).board, 'sustain', { poison: 3, fire: 0 })], [false, true]);
-  eq('棚：攻撃・盾は いつでも働く', [R.canWork(setup({}).board, 'slash'), R.canWork(setup({}).board, 'shield')], [true, true]);
-  eq('置く前：敵に毒があるとき、毒のとなりに持続強化 → 1本', R.linksIfPlaced(setup({ 12: 'poison' }).board, 'sustain', 13, { poison: 10, fire: 0 }), [12]);
-  // 拡散：属性が まだ のっていない攻撃があるときだけ役に立つ
-  d = D({ 11: 'slash', 12: 'poison', 13: 'spread' });
-  eq('拡散：毒がもう全部の攻撃に のっている → 拡散は効いていない', [d.live[13], key(d.liveLinks)], [false, '11-12']);
-  d = D({ 11: 'slash', 12: 'poison', 13: 'spread', 24: 'shot' });
-  eq('拡散：はなれた攻撃がある → 効いている', [d.live[13], key(d.liveLinks)], [true, '11-12 12-13']);
-  d = D({ 12: 'poison', 13: 'spread', 24: 'shot' });
-  eq('拡散：攻撃につながっていない毒も、拡散で とどけば働く', [d.live[12], d.live[13], key(d.liveLinks)], [true, true, '12-13']);
-  ok('　そのとき、はなれた攻撃に毒が のっている', d.atk[0].elem.poison > 0);
-  d = D({ 12: 'slash', 13: 'pierce' });
-  eq('斬撃＋貫通：効いている', key(d.liveLinks), '12-13');
-  d = D({ 12: 'leech', 13: 'amp' });
-  eq('攻撃のない吸収＋増幅：効いていない', key(d.liveLinks), '');
-  const s2 = setup({ 11: 'slash', 12: 'poison' }).board; s2[11].sealed = 2;
-  eq('封印中の攻撃につないだ毒は、働いていない', R.derive(s2).live[12], false);
-  // 効いている・いないの印は、戦いの計算と合っている：効いていない札を全部どけても、ダメージは同じ（でたらめな盤面200個）
-  let x = 99, bad = 0; const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; };
-  for (let t = 0; t < 200; t++) {
-    const pre = { poison: rnd() < 0.5 ? (rnd() * 12) | 0 : 0, fire: rnd() < 0.3 ? (rnd() * 4) | 0 : 0, ice: (rnd() * 6) | 0, shock: (rnd() * 6) | 0 };
-    const mk1 = () => { const s = setup({}, [atk(12, 2)], pre); s.p.shield = 3; return s; };
-    const a = mk1(), fill = 0.2 + rnd() * 0.6;
-    for (let i = 0; i < R.N; i++) if (rnd() < fill) { const k = R.mk(R.TYPES[(rnd() * R.TYPES.length) | 0]); k.lv = 1 + ((rnd() * 3) | 0); a.board[i] = k; }
-    const b = mk1(); const dv = R.derive(a.board, a.e);
-    for (let i = 0; i < R.N; i++) b.board[i] = a.board[i] && dv.live[i] ? JSON.parse(JSON.stringify(a.board[i])) : null;
-    R.resolve(a); R.resolve(b);
-    const after = z => JSON.stringify([z.stats.total, z.stats.taken, z.e.hp, z.p.hp, z.e.poison, z.e.fire, z.e.ice, z.e.shock, z.e.guard, z.e.frozen, z.p.shield, z.p.curse, z.p.dodgeCd,
-      z.board.map((c, i) => (c && dv.live[i] ? c.charge : 0))]);
-    if (after(a) !== after(b)) bad++;
-  }
-  eq('効いていない札を全部どけても、1ターンの結果と、ターンのあとの状態（敵の毒・炎など、シールド、たまり）は同じ（でたらめな盤面200個、敵の状態つき）', bad, 0);
-}
-// 反射は、盾とつながっているときだけ働く。盾がないとき、貫通との線は出ない
-{
-  const a = R.derive(setup({ 12: 'pierce', 13: 'mirror' }).board);
-  eq('反射＋貫通だけ → 線なし', a.links, []);
-  eq('反射＋貫通だけ → 反射は0', a.reflect, 0);
-  eq('置く前：反射を貫通のとなりに → つながらない', R.linksIfPlaced(setup({ 12: 'pierce' }).board, 'mirror', 13), []);
-  const b = R.derive(setup({ 12: 'pierce', 13: 'mirror', 14: 'shield' }).board);
-  eq('反射＋盾＋貫通 → 反射は両方とつながる', b.L[13].slice().sort((x, y) => x - y), [12, 14]);
-  ok('反射＋盾＋貫通 → 反射が働き、装甲を無視する', b.reflect > 0 && b.reflectPierce === true);
-  const c = R.derive(setup({ 13: 'mirror', 14: 'shield' }).board);
-  eq('反射＋盾 → つながる', c.L[13], [14]);
-}
-// 画面に出す線（links）と、計算に使うつながりは同じもの
-{ const s = setup({ 12: 'area', 18: 'amp', 13: 'poison', 14: 'sustain', 7: 'haste', 2: 'dodge', 0: 'shield', 1: 'mirror' }); const d = R.derive(s.board);
-  const key = l => l.map(p => p.join('-')).sort().join(' ');
-  eq('線の一覧', key(d.links), key([[12, 18], [12, 13], [13, 14], [13, 18], [7, 12], [2, 7], [0, 1]])); }
 
-// ---- 通し：ボットが遊んでも、こわれない・予想と結果が合う・同じ種なら同じ結果
-let fcMismatch = 0, bad = 0, games = 0, maxHits = 0, preMismatch = 0, preChecks = 0;
-for (const id of R.ENEMY_IDS) for (let seed = 1; seed <= 6; seed++) {
-  const s = R.newGame(id, seed * 7919); games++;
-  const rand = (() => { let x = seed * 99 + 1; return () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff; }; })();
-  let guard = 0;
-  while ((s.phase === 'start' || s.phase === 'place') && s.turn < 30 && guard++ < 3000) {
-    const act = seed % 2 ? Bot.chooseAction(s, {}) : Bot.chooseAction(s, { random: true, rand });
-    if (act.type !== 'end') {
-      // 置く前の「つながる」予告は、置いた後の本物のつながりと同じ
-      const want = act.type === 'place' ? R.linksIfPlaced(s.board, R.srcType(s, act.src), act.cell) : R.linksIfSwapped(s.board, act.a, act.b);
-      const at = act.type === 'place' ? act.cell : act.b;
-      if (Bot.apply(s, act) !== 'bad') {
-        preChecks++;
-        const got = s.board[at] ? R.derive(s.board).LL[at] : [];
-        if (String(got.slice().sort((x, y) => x - y)) !== String(want.slice().sort((x, y) => x - y))) preMismatch++;
-        continue;
-      }
-    }
-    const f = R.forecast(s), t0 = s.stats.total, k0 = s.stats.taken;
-    const ev = R.endTurn(s);
-    if (f.dealt !== s.stats.total - t0 || f.taken !== s.stats.taken - k0 || f.won !== (s.phase === 'won') || f.lost !== (s.phase === 'lost')) fcMismatch++;
-    maxHits = Math.max(maxHits, ev.filter(e => e.t === 'hit').length);
-    const last = ev[ev.length - 1];
-    if (last.eh !== Math.max(0, s.e.hp) || last.ph !== Math.max(0, s.p.hp)) bad++;
-    for (const v of [s.e.hp, s.p.hp, s.p.shield, s.e.poison, s.e.fire, s.e.ice, s.e.shock, s.e.guard, s.p.curse]) if (!Number.isInteger(v)) bad++;
-    if (s.p.hp > s.p.max || s.e.hp > s.e.max || s.p.shield < 0 || s.e.poison < 0) bad++;
-    if (s.phase === 'place' && (s.moves < 1 || s.shop.filter(x => x).length !== R.SHOP)) bad++;
-  }
+// ------------------------------------------------------------ 6. 敵の性質と じゃま
+eq('装甲2（ゴーレム）：斬撃 6→4', go([['slash', 0, 6]], { enemy: 'golem' }).dealt, 4);
+eq('装甲2（ゴーレム）：射撃 2→0 が2回', go([['shot', 0, 6]], { enemy: 'golem' }).dealt, 0);
+eq('装甲は 毒のダメージを へらせない（毒→盾、敵の2ヒットで毒4）', go([['poison', 1, 1], ['shield', 0, 6]], { enemy: 'golem', parts: [A(1, 2)] }).dealt, 4);
+eq('身かわし（狩人）：最初の2ヒットをよける（射撃が先なら 斬撃は当たる）', go([['shot', 0, 1], ['slash', 0, 6]], { enemy: 'hunter' }).dealt, 6);
+eq('身かわし（狩人）：斬撃が先だと 斬撃と射撃1ヒットをよけられる', go([['slash', 0, 1], ['shot', 0, 6]], { enemy: 'hunter' }).dealt, 2);
+eq('身かわし：よけられたヒットでは 能力は働かない', go([['poison', 1, 1], ['slash', 0, 6]], { enemy: 'hunter' }).gifts('poison'), 0);
+eq('身かわし：自分で働く能力は よけられない', go([['poison', 1, 6]], { enemy: 'hunter' }).gifts('poison'), 1);
+eq('トゲ1（狂戦士）：ヒット1回ごとに1ダメージ（射撃2ヒットで2）', go([['shot', 0, 6]], { enemy: 'berserk' }).taken, 2);
+eq('トゲはシールドで防げる', go([['shot', 0, 6], ['shield', 0, 13]], { enemy: 'berserk' }).taken, 0);
+eq('再生5（ヒドラ）：ターンの終わりに5回復（6与えて5もどる）', go([['slash', 0, 6]], { enemy: 'hydra', e: { hp: 50 } }).dealt, 1);
+eq('結界：次のターンのヒットを防ぐ（結界8、斬撃6 → 0、結界のこり2）', (r => [r.dealt, r.ev.filter(x => x.t === 'hit')[0].guardCut])(go([['slash', 0, 6]], { e: { guard: 8 } })), [0, 6]);
+eq('結界は 敵の行動の前に消える', go([['slash', 0, 6]], { e: { guard: 99 }, parts: [A(1)] }).s.e.guard, 0);
+eq('脱皮：毒・炎・氷・雷を全部消す', (e => [e.poison, e.ice, e.shock])(go([['poison', 1, 6]], { e: { ice: 3, shock: 3 }, parts: [{ k: 'cleanse' }] }).s.e), [0, 0, 0]);
+eq('呪い：シールドで防げない。ターンの終わりに呪いの数だけ、1ずつへる', (r => [r.taken, r.s.p.curse])(go([['shield', 0, 6]], { parts: [{ k: 'curse', n: 4 }] })), [4, 3]);
+{ // 封印：凸も凹も はまらない
+  eq('封印された増幅は はまらない（斬撃は6のまま）', go([['amp', 1, 1], ['slash', 0, 6]], { sealed: [0] }).dealt, 6);
+  eq('封印された斬撃は 受け取れない（でも自分では働く）', go([['amp', 1, 1], ['slash', 0, 6]], { sealed: [1] }).dealt, 6);
+  eq('封印された毒は ひとりで働く', go([['poison', 1, 1], ['slash', 0, 6]], { sealed: [0] }).gifts('poison'), 1);
+  const s = R.newFight({ enemyId: 'dummy', seed: 3 });
+  s.intent = { label: 'テスト', parts: [{ k: 'seal', n: 2 }], cells: { rubble: [] } };
+  R.endTurn(s);
+  eq('封印2個：次のターン、手札の2個が封印される', [s.sealed.length, s.sealed.every(id => s.hand.indexOf(id) >= 0)], [2, true]);
+  R.endTurn(s);
+  eq('封印は1ターンだけ', s.sealed.length, 0);
 }
-eq(`予想と結果のずれ（${games}戦）`, fcMismatch, 0);
-eq('こわれた数字', bad, 0);
-eq(`置く前の「つながる」予告と、置いた後のずれ`, preMismatch, 0);
-ok('置く前の予告を十分な回数くらべた', preChecks > 300, `回数 ${preChecks}`);
-ok('1ターンのヒット数は上限より下', maxHits < 300, `max ${maxHits}`);
-{ const a = Bot.playGame('hydra', 4242, {}), b = Bot.playGame('hydra', 4242, {});
-  eq('同じ種なら同じ結果', [a.phase, a.turn, a.e.hp, a.p.hp, a.stats.total], [b.phase, b.turn, b.e.hp, b.p.hp, b.stats.total]); }
+{ // がれき：次のターン、そのマスに置けない
+  const s = R.newFight({ enemyId: 'dummy', seed: 3 });
+  s.intent = { label: 'テスト', parts: [{ k: 'rubble', n: 2 }], cells: { rubble: [6, 7] } };
+  eq('がれきは このターンには まだ置ける', R.canPut(s, s.hand[0], 6), true);
+  R.endTurn(s);
+  eq('がれき：次のターン、そのマスに置けない', [s.blocked, R.canPut(s, s.hand[0], 6), R.put(s, s.hand[0], 7), R.canPut(s, s.hand[0], 8)], [[6, 7], false, false, true]);
+  R.endTurn(s);
+  eq('がれきは1ターンだけ', s.blocked, []);
+  const h = R.newFight({ enemyId: 'hunter', seed: 3 }); R.endTurn(h);
+  ok('狩人の がれきは まん中のマスに落ちる', h.intent.cells.rubble.length === 2 && h.intent.cells.rubble.every(c => R.INNER.indexOf(c) >= 0));
+}
+{ // 破壊：いちばん多く はまっているブロックが、この戦いから消える
+  const spec = [['amp', 1, 1], ['poison', 0, 5], ['slash', 0, 6], ['shield', 0, 13]];
+  const s = mk(spec, { parts: [{ k: 'destroy', n: 1 }] });
+  eq('破壊のねらい：2つ はまっている斬撃', R.destroyTargets(R.derive(s), 1), [6]);
+  const s2 = R.newFight({ enemyId: 'dummy', deck: spec.map(x => [x[0], x[1]]).concat([['slash', 0], ['slash', 0], ['slash', 0], ['slash', 0], ['slash', 0], ['slash', 0], ['slash', 0], ['slash', 0]]), hand: 12, seed: 5 });
+  spec.forEach((x, id) => R.put(s2, id, x[2]));
+  s2.intent = { label: 'テスト', parts: [{ k: 'destroy', n: 1 }], cells: { rubble: [] } };
+  R.endTurn(s2);
+  eq('破壊されたブロックは、山札にも捨て札にも手札にも ない', [s2.gone, s2.deck.concat(s2.discard, s2.hand).indexOf(2)], [[2], -1]);
+  for (let i = 0; i < 6; i++) R.endTurn(s2);
+  eq('破壊されたブロックは、その戦いでは もう引かない', s2.deck.concat(s2.discard, s2.hand).indexOf(2), -1);
+  eq('どこも はまっていなければ、何も こわれない', R.destroyTargets(R.derive(mk([['slash', 0, 6], ['shield', 0, 13]])), 1), []);
+  eq('同じ数なら 左上が先', R.destroyTargets(R.derive(mk([['amp', 1, 1], ['slash', 0, 6], ['amp', 1, 3], ['slash', 0, 8]])), 1), [1]);
+  eq('破壊2個', R.destroyTargets(R.derive(mk(spec)), 2), [6, 1]);
+}
+{ // 予告の文
+  const it = { parts: [A(5, 3), { k: 'guard', n: 8 }, { k: 'seal', n: 2 }, { k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'curse', n: 3 }], cells: { rubble: [6, 7] } };
+  eq('予告の文', R.intentLines(it).map(x => x.text.split('（')[0]), ['攻撃 5×3回', '結界 8', '封印 2個', '破壊 1個', 'がれき 2マス', '呪い+3']);
+  const g = R.newFight({ enemyId: 'golem', seed: 1, stage: 0 });
+  eq('ゴーレム 1戦目の1つ目の予告は「なぐる 攻撃12」', [g.intent.label, g.intent.parts[0].dmg], ['なぐる', 12]);
+  const g4 = R.newFight({ enemyId: 'golem', seed: 1, stage: 4 });
+  eq('5戦目は 攻撃とHPが倍率どおり', [g4.intent.parts[0].dmg, g4.e.max], [Math.round(12 * R.STAGE_ATK[4]), Math.round(80 * R.STAGE_HP[4])]);
+}
 
-if (fails.length) console.log(fails.join('\n'));
-console.log(`\nテスト: 合格 ${pass} / 失敗 ${fail}   （通しの最大ヒット数/ターン: ${maxHits}）`);
+// ------------------------------------------------------------ 7. 山札：7個引く → 全部すてる → なくなったら切り直す
+{
+  const s = R.newFight({ enemyId: 'dummy', seed: 9 });
+  const all = id => s.deck.concat(s.discard, s.hand, s.gone).sort((a, b) => a - b).join(',');
+  const want = s.cards.map(c => c.id).join(',');
+  eq('はじめのデッキは14個', s.cards.length, 14);
+  eq('1ターン目に7個引く', [s.hand.length, s.deck.length, s.discard.length], [7, 7, 0]);
+  const h1 = s.hand.slice();
+  R.put(s, s.hand[0], 6); R.put(s, s.hand[1], 7);
+  R.endTurn(s);
+  eq('ターンの終わりに 手札を全部（置いたものも、置かなかったものも）捨て札へ', [s.discard.slice().sort((a, b) => a - b), s.board.every(x => x == null)], [h1.slice().sort((a, b) => a - b), true]);
+  eq('2ターン目も7個引く（山札は0に）', [s.hand.length, s.deck.length], [7, 0]);
+  eq('2ターンで14個ぜんぶを1回ずつ引く', h1.concat(s.hand).sort((a, b) => a - b).join(','), want);
+  R.endTurn(s);
+  eq('山札がなくなったら 捨て札を切り直して引く', [s.hand.length, s.deck.length, s.discard.length], [7, 7, 0]);
+  let good = true; const seen = {};
+  for (let t = 0; t < 40; t++) { if (all() !== want || s.hand.length !== 7) good = false; for (const id of s.hand) seen[id] = (seen[id] || 0) + 1; R.endTurn(s); }
+  ok('40ターン回しても、札の数は変わらない（山札＋捨て札＋手札＝14）', good);
+  const cnt = Object.values(seen);
+  ok('どの札も同じ回数だけ引く（40ターンで各20回）', Math.max(...cnt) - Math.min(...cnt) <= 1, JSON.stringify(cnt));
+}
+{ // 感電：次のターン1個多く引く／再発動：次のターンも引く
+  const s = R.newFight({ enemyId: 'dummy', seed: 9 }); s.drawBonus = 1; R.endTurn(s);
+  eq('感電のあとは 8個引く', s.hand.length, 8);
+  R.endTurn(s); eq('その次は 7個にもどる', s.hand.length, 7);
+  const deck = [['refire', 1], ['slash', 0]]; for (let i = 0; i < 14; i++) deck.push(['shot', 0]);
+  const r = R.newFight({ enemyId: 'dummy', deck, hand: 16, seed: 2 }); r.handSize = 7;
+  R.put(r, 0, 1); R.put(r, 1, 6);
+  eq('再発動→斬撃 は効く', okLinks(r), '1>6');
+  R.endTurn(r);
+  eq('再発動：わたした相手（斬撃）を 次のターンの最初に引く', [r.hand[0], r.hand.length], [1, 7]);
+}
+{ // 置く・もどす・入れかえる
+  const s = R.newFight({ enemyId: 'dummy', seed: 4 }), a = s.hand[0], b = s.hand[1];
+  eq('置く', [R.put(s, a, 6), s.board[6]], [true, a]);
+  eq('同じマスに もう一度は置けない', R.put(s, a, 6), false);
+  eq('動かす', [R.put(s, a, 7), s.board[6], s.board[7]], [true, null, a]);
+  R.put(s, b, 6);
+  eq('盤面どうしは入れかえ', [R.put(s, a, 6), s.board[6], s.board[7]], [true, a, b]);
+  const c = s.hand[2];
+  eq('手札から 札のあるマスに置くと、もとの札は手札にもどる', [R.put(s, c, 6), s.board[6], R.cellOf(s, a)], [true, c, -1]);
+  eq('もどす', [R.take(s, c), s.board[6]], [true, null]);
+  eq('手札にない札は置けない', R.put(s, 99, 3), false);
+  eq('回すのは ?rot=1 のときだけ', R.rotate(s, b), false);
+  const r = R.newFight({ enemyId: 'dummy', seed: 4, rot: true }), id = r.hand[0], r0 = r.cards[id].rot;
+  eq('?rot=1 なら回せる', [R.rotate(r, id), r.cards[id].rot], [true, (r0 + 1) & 3]);
+  R.clearBoard(s); eq('全部もどす', s.board.every(x => x == null), true);
+}
+
+// ------------------------------------------------------------ 8. 札に出す字（summary）は、計算と同じ
+{
+  const s = mk([['amp', 1, 1], ['haste', 0, 5], ['slash', 0, 6], ['poison', 1, 3], ['shield', 0, 8], ['regen', 1, 10]]), d = R.derive(s);
+  eq('斬撃の字（増幅＋加速）', R.summary(d, 6).main, '12×2');
+  eq('盾の字', R.summary(d, 8).main, '+7');
+  eq('盾が受け取った毒', R.summary(d, 8).lines, ['シールド+7', '敵のヒット1回ごとに 毒+2']);
+  eq('わたした毒は「わたしている」', R.summary(d, 3).gives, true);
+  eq('ひとりの再生は「自分で1回」', [R.summary(d, 10).gives, R.summary(d, 10).main], [false, '+1']);
+  const f = R.forecast(s);
+  eq('予想（与える24、毒は敵が攻撃しないので0）', [f.dealt, f.poison], [24, 0]);
+  eq('ごほうびの めやす：増幅(凸が下)が はまる凹は、はじめのデッキに5つ', R.fitCount(R.START_DECK.map(c => ({ type: c[0], rot: c[1] })), { type: 'amp', rot: 1 }).give, 5);
+}
+
+// ------------------------------------------------------------ 9. 5連戦の流れ
+{
+  const run = R.newRun(7);
+  eq('5連戦：敵5体を1回ずつ', run.order.slice().sort().join(','), R.ENEMY_IDS.slice().sort().join(','));
+  eq('1戦目', [run.phase, run.stage, run.fight.stage, run.fight.p.hp], ['fight', 0, 0, 100]);
+  eq('戦いの途中では finishFight できない', R.finishFight(run), false);
+  run.fight.p.hp = 60; run.fight.phase = 'won';
+  eq('勝つと HP+20 して、ブロックをえらぶ', [R.finishFight(run), run.phase, run.hp, run.reward.round, run.reward.options.length], [true, 'reward', 80, 1, 3]);
+  const n0 = run.deck.length, o = run.reward.options[0];
+  R.pickReward(run, 0);
+  eq('えらぶと デッキに入る（レベルアップなら その種類が強くなる）', o.up ? [run.deck.length, run.lv[o.type]] : [run.deck.length, run.deck[n0].type], o.up ? [n0, o.lv] : [n0 + 1, o.type]);
+  eq('2回えらぶ', [run.phase, run.reward.round], ['reward', 2]);
+  R.pickReward(run, -1);
+  eq('えらばないこともできる。そのあと 1個はずせる', run.phase, 'remove');
+  const n1 = run.deck.length, t0 = run.deck[0].type;
+  R.removeCard(run, 0);
+  eq('はずすと デッキから消えて、2戦目へ', [run.deck.length, run.removed, run.phase, run.stage, run.fight.stage, run.fight.p.hp, run.fight.cards.length], [n1 - 1, [t0], 'fight', 1, 1, 80, n1 - 1]);
+  run.fight.phase = 'lost'; R.finishFight(run);
+  eq('負けたら そこで終わり', run.phase, 'lost');
+  const r2 = R.newRun(8);
+  for (let i = 0; i < 5; i++) { r2.fight.phase = 'won'; R.finishFight(r2); if (r2.phase === 'reward') { R.pickReward(r2, -1); R.pickReward(r2, -1); R.removeCard(r2, -1); } }
+  eq('5戦ぜんぶ勝つと クリア', [r2.phase, r2.stage], ['won', 4]);
+  // レベルアップの ごほうびは、もっている種類だけ・上限まで
+  let bad = 0, ups = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const r = R.newRun(seed); r.lv.slash = 3;
+    for (const o2 of R.rollReward(r)) if (o2.up) { ups++; if (!r.deck.some(c => c.type === o2.type) || o2.lv !== R.lvOf(r.lv, o2.type) + 1 || o2.lv > R.maxLv(o2.type)) bad++; }
+  }
+  ok('レベルアップの ごほうびは、もっている種類だけ・上限まで', bad === 0 && ups > 20, `bad ${bad} ups ${ups}`);
+}
+
+// ------------------------------------------------------------ 10. ボットに通しで遊ばせる：予想＝結果、札の数、同じ種なら同じ結果
+{
+  let mism = 0, turns = 0, cons = 0, linkBad = 0;
+  for (const style of ['smart', 'attack', 'blind', 'solo', 'random']) for (let seed = 1; seed <= 4; seed++) {
+    Bot.playRun(seed * 3 + 1, { style, pick: 'random', remove: 'random', onTurn: s => {
+      turns++;
+      const f = R.forecast(s), c = R.cloneState(s); const t0 = c.stats.total, k0 = c.stats.taken; R.endTurn(c);
+      if (f.dealt !== c.stats.total - t0 || f.taken !== c.stats.taken - k0 || f.eHp !== Math.max(0, c.e.hp) || f.pHp !== Math.max(0, c.p.hp)) mism++;
+      if (s.deck.length + s.discard.length + s.hand.length + s.gone.length !== s.cards.length) cons++;
+      const d = R.derive(s);
+      // 効いている線の両はしは、封印されていない。わたす側は 自分では働かない（順番に入らない）
+      for (const l of d.links) { if (d.blk[l.from].sealed || d.blk[l.to].sealed) linkBad++; if (l.ok && d.blk[l.from].fam === 'abil' && d.order.indexOf(l.from) >= 0) linkBad++; }
+      if (style === 'solo' && d.links.length) linkBad++;
+    } });
+  }
+  ok(`予想と結果が同じ（${turns}ターン）`, mism === 0 && turns > 300, `ずれ ${mism} / ${turns}`);
+  ok('札の数が変わらない（山札＋捨て札＋手札＋破壊）', cons === 0);
+  ok('線のきまり（封印・わたす側は働かない・solo は はめない）', linkBad === 0, `${linkBad}`);
+  const a = Bot.playRun(42, { style: 'smart', pick: 'random' }), b = Bot.playRun(42, { style: 'smart', pick: 'random' });
+  eq('同じ種なら同じ結果', a.fights.map(f => [f.enemy, f.turns, f.hp1, f.total]), b.fights.map(f => [f.enemy, f.turns, f.hp1, f.total]));
+  const c = Bot.playRun(43, { style: 'smart', pick: 'random' });
+  ok('種がちがえば ちがう結果', JSON.stringify(a.fights) !== JSON.stringify(c.fights));
+  // 回せる設定でも こわれない
+  const r = Bot.playRun(5, { style: 'smart', pick: 'random', rot: true, restarts: 1, passes: 1 });
+  ok('回せる設定（?rot=1）でも最後まで動く', r.fights.length >= 1);
+}
+
+console.log(`\n合格 ${pass} / 失敗 ${fail}`);
 process.exit(fail ? 1 : 0);

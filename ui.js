@@ -1,42 +1,39 @@
-'use strict';
 /*
- * ui.js — 画面。ルールは rules.js にあり、ここは「見せる・クリックを受ける」だけ。
- * 発動の演出は、rules.js が返す出来事ログを順番に再生する。
- * URL: ?seed=数  ?enemy=golem|hunter|hydra|mage|berserk  ?auto=1（ボットが画面を通して遊ぶ・無音） ?mute=1 ?speed=0
+ * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
+ * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &stop=ターン &pick=1 &screen=reward|remove|help|deck|lose
  */
 (function () {
+  'use strict';
   const R = window.Rules, Bot = window.BotCore;
   const $ = s => document.querySelector(s);
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const Q = new URLSearchParams(location.search);
-  if (Q.get('names') === '1') document.documentElement.classList.add('show-names'); // ?names=1 … 盤面の札にも名前を出す（くらべる用）
-  const AUTO = Q.get('auto') === '1';
-  const MUTE = AUTO || Q.get('mute') === '1';
-  const STOP = Q.has('stop') ? +Q.get('stop') : 0; // ?auto=1&stop=5 … 5ターン目で止める（画面の写真用）。&pick=1 … 止めたとき、つながる相手がいる棚の札を1つ選んだ画面にする
-  const FAM_COLOR = { atk: 'var(--atk)', elem: 'var(--elem)', spec: 'var(--spec)', enh: 'var(--enh)', def: 'var(--def)', junk: 'var(--junk)' };
-  const SRC_NAMES = { fire: '炎', chase: '追撃', consume: '毒消費', poison: '毒', shock: '感電', mirror: '反射' };
+  const AUTO = Q.get('auto') === '1', MUTE = AUTO || Q.get('mute') === '1', ROT = Q.get('rot') === '1';
+  const STOP = Q.has('stop') ? +Q.get('stop') : 0, SCREEN = Q.get('screen') || '';
+  const FAM_COLOR = { atk: 'var(--atk)', def: 'var(--def)', abil: 'var(--abil)', enh: 'var(--enh)' };
+  const SRC_NAMES = { fire: '炎', chase: '追撃', consume: '毒消費', poison: '毒', shock: '感電', mirror: '反射', charge: 'たまり' };
 
   const G = {
-    s: null, pre: null, view: null, undo: [], sel: null, busy: false, hoverInfo: null, preview: null,
-    speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), enemyId: null, seed: 0, turnSum: { e: 0, p: 0 }, lastBlow: null,
+    mode: 'run', run: null, s: null, sel: null, busy: false, pre: null, preD: null, view: null, hoverId: null, hoverCell: -1,
+    speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), seed: Q.has('seed') ? (+Q.get('seed') | 0) : ((Date.now() % 90000) + 1),
+    turnSum: { e: 0, p: 0 }, gone: {},
   };
-  const CHECK = { turns: 0, mismatches: [], errors: [], done: false, result: null, layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
-  function sampleLayout() {
-    const r = window.__layoutCheck(), L = CHECK.layout; L.samples++;
-    L.overlaps += r.overlaps; L.offscreen += r.offscreen; L.clipped += r.clipped; L.pageScroll = Math.max(L.pageScroll, r.pageScroll);
-    for (const s of r.samples) if (L.notes.length < 12 && L.notes.indexOf(s) < 0) L.notes.push(s);
-  }
+  const CHECK = { turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, screens: {},
+                  layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
   window.__check = CHECK; window.__G = G;
   window.addEventListener('error', e => CHECK.errors.push(String(e.message)));
+  window.addEventListener('unhandledrejection', e => CHECK.errors.push('promise: ' + String(e.reason && e.reason.message || e.reason)));
+  const miss = m => { if (CHECK.mismatches.length < 30) CHECK.mismatches.push(m); };
 
   // ------------------------------------------------------------ 音（小さめ。?auto / ?mute では鳴らさない）
   let AC = null; let vol = 0.25;
   function sfx(kind, n) {
-    if (MUTE || vol <= 0) return;
+    if (MUTE || vol <= 0 || G.speed === 0) return;
     try {
       AC = AC || new (window.AudioContext || window.webkitAudioContext)();
       const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-      const P = { place: [520, 0.07, 'triangle'], hit: [300 + Math.min(12, n || 0) * 35, 0.06, 'square'], ehit: [120, 0.12, 'sawtooth'], big: [660, 0.2, 'triangle'], win: [880, 0.5, 'triangle'], lose: [90, 0.6, 'sawtooth'], bad: [200, 0.1, 'sine'] }[kind] || [440, 0.05, 'sine'];
+      const P = { place: [520, 0.07, 'triangle'], link: [740, 0.09, 'triangle'], hit: [300 + Math.min(12, n || 0) * 35, 0.06, 'square'], ehit: [120, 0.12, 'sawtooth'], big: [660, 0.2, 'triangle'], win: [880, 0.5, 'triangle'], lose: [90, 0.6, 'sawtooth'], bad: [200, 0.1, 'sine'] }[kind] || [440, 0.05, 'sine'];
       o.type = P[2]; o.frequency.setValueAtTime(P[0], t);
       if (kind === 'win') o.frequency.exponentialRampToValueAtTime(1320, t + 0.3);
       g.gain.setValueAtTime(vol * 0.25, t); g.gain.exponentialRampToValueAtTime(0.0001, t + P[1]);
@@ -44,599 +41,536 @@
     } catch (e) { /* 音が出せない環境では何もしない */ }
   }
 
-  // ------------------------------------------------------------ 部品
-  function tileEl(type, lv, opt) {
-    opt = opt || {};
-    const d = R.B[type]; const t = el('div', 'tile');
-    t.dataset.fam = d.fam; t.dataset.type = type;
-    let h = `<span class="g">${d.g}</span><span class="n${opt.sealed ? ' nseal' : opt.badge ? ' nb' : ''}">${opt.sealed ? `封印${opt.sealed}` : (opt.badge || d.name)}</span>`;
-    if (type !== 'rubble' && lv > 1) h += `<span class="lv">${[1, 2, 3].map(i => `<i class="${i <= lv ? 'on' : ''}"></i>`).join('')}</span>`;
-    t.innerHTML = h;
-    if (opt.sealed) t.classList.add('sealed');
-    if (opt.idle) t.classList.add('idle');
-    return t;
+  // ------------------------------------------------------------ ブロックの絵（凸と凹）
+  // 100×100 の中に、体は 7〜93。辺のまん中に 凸（外へ）か 凹（内へ）。 side: 0上 1右 2下 3左。 u … 辺にそって時計回り、v … 外向き
+  const f2 = x => Math.round(x * 10) / 10;
+  function pt(side, u, v) {
+    const p = side === 0 ? [u, 7 - v] : side === 1 ? [93 + v, u] : side === 2 ? [100 - u, 93 + v] : [7 - v, 100 - u];
+    return f2(p[0]) + ' ' + f2(p[1]);
   }
+  function bodyPath(e) {
+    let d = 'M' + pt(0, 15, 0);
+    for (let k = 0; k < 4; k++) {
+      if (e[k] === -1) d += ` L${pt(k, 39, 0)} L${pt(k, 39, -2)} A11 11 0 0 0 ${pt(k, 61, -2)} L${pt(k, 61, 0)}`;
+      d += ` L${pt(k, 85, 0)} A8 8 0 0 1 ${pt((k + 1) % 4, 15, 0)}`;
+    }
+    return d + 'Z';
+  }
+  const tabPath = (k, len) => `M${pt(k, 40, -1)} L${pt(k, 40, len - 10)} A10 10 0 0 1 ${pt(k, 60, len - 10)} L${pt(k, 60, -1)}Z`;
+  const arrowPath = (k, len) => `M${pt(k, 50, len - 2.5)} L${pt(k, 44, len - 10)} L${pt(k, 56, len - 10)}Z`;
+  const crossPath = (k, len) => `M${pt(k, 46, len - 3)} L${pt(k, 54, len - 11)} M${pt(k, 54, len - 3)} L${pt(k, 46, len - 11)}`;
+  // o: { d（derive の結果）, cell, lv, name（名前を出す）, mark }
+  function pieceEl(card, o) {
+    o = o || {};
+    const def = R.B[card.type], e = R.edges(card.type, card.rot);
+    const p = el('div', 'pc'); p.dataset.fam = def.fam; p.dataset.type = card.type; if (card.id != null) p.dataset.id = card.id;
+    const X = o.d && o.cell != null ? o.d.blk[o.cell] : null;
+    let svg = `<svg viewBox="0 0 100 100" aria-hidden="true"><path class="pc-body" d="${bodyPath(e)}"/>`;
+    for (let k = 0; k < 4; k++) if (e[k] === 1) {
+      const ln = X ? X.outs.find(l => l.side === k) : null, len = ln ? 24 : 14;
+      svg += `<path class="pc-tab${ln ? (ln.ok ? ' on' : ' off') : ''}"${ln ? ` data-link="${ln.from}-${ln.to}" data-ok="${ln.ok ? 1 : 0}"` : ''} d="${tabPath(k, len)}"/>`;
+      if (ln) svg += ln.ok ? `<path class="pc-arrow" d="${arrowPath(k, len)}"/>` : `<path class="pc-x" d="${crossPath(k, len)}"/>`;
+    }
+    svg += '</svg>';
+    let h = svg + `<div class="pc-in"><span class="g">${def.g}</span>`;
+    const sum = X ? R.summary(o.d, o.cell) : null;
+    if (sum) { if (sum.main) h += `<span class="m" data-main="${sum.main}">${sum.main}</span>`; } else if (o.name !== false && def.name !== def.g) h += `<span class="n">${def.name}</span>`;
+    h += '</div>';
+    if (X && X.ord) h += `<span class="ord">${X.ord}</span>`;
+    if (o.lv > 1) h += `<span class="lv" data-lv="${o.lv}">${'<i></i>'.repeat(o.lv)}</span>`; // レベルは点の数（字にすると、小さい札で ほかの字に重なった）
+    if (o.mark) h += `<span class="mark ${o.mark[0]}">${o.mark[1]}</span>`;
+    p.innerHTML = h;
+    if (sum && sum.idle) p.classList.add('idle');
+    if (sum && sum.gives) p.classList.add('gives');
+    if (o.sealed) p.classList.add('sealed');
+    if (o.mark) p.classList.add('has-mark');
+    return p;
+  }
+  function miniEl(card, lv, cls) { const m = el('div', 'mini' + (cls ? ' ' + cls : '')); m.appendChild(pieceEl(card, { lv, name: false })); return m; }
+
   const D = () => (G.busy ? G.pre : G.s); // いま画面に出す状態（演出中は発動前の写し）
   const num = (k, real) => (G.view ? G.view[k] : real);
+  const lvOf = type => R.lvOf(D() ? D().lv : (G.run ? G.run.lv : {}), type);
 
-  // ------------------------------------------------------------ 敵をえらぶ画面
+  // ------------------------------------------------------------ タイトル
+  function previewOrder() { return R.newRun(G.seed, { rot: ROT }).order; }
   function renderTitle() {
-    const box = $('#enemy-cards'); box.innerHTML = '';
-    for (const id of R.ENEMY_IDS) {
-      const e = R.ENEMIES[id];
-      const c = el('button', 'ecard', `<div class="eg">${e.g}</div><div class="en">${e.name}</div><div class="eh">HP ${e.hp}</div><div class="et">${e.trait}</div><div class="ei">${e.hint}</div><div class="ego">この敵と戦う ▶</div>`);
-      c.dataset.enemy = id;
-      c.addEventListener('click', () => startGame(id));
-      box.appendChild(c);
+    const rules = $('#title-rules'); rules.innerHTML = '';
+    const RULES = [
+      [{ type: 'amp', rot: 0 }, '凸 → 凹 に はまる', '凸のブロックが、凹のブロックに 能力を わたす。'],
+      [{ type: 'poison', rot: 0 }, 'わたすと 自分は働かない', 'わたさない能力ブロックは、自分で1回（半分の力）。'],
+      [{ type: 'slash', rot: 0 }, '受け取り方で 変わる', '攻撃は ヒットごと。防御は 敵のヒットごと。'],
+      [{ type: 'shield', rot: 0 }, '先へは わたらない', '受け取ったものは、次のブロックへは行かない。'],
+    ];
+    for (const r of RULES) {
+      const c = el('div', 'rule'); const rp = el('div', 'rp'); rp.appendChild(pieceEl(r[0], { name: false }));
+      c.appendChild(rp); c.appendChild(el('div', 'rt2', `<b>${r[1]}</b>${r[2]}`)); rules.appendChild(c);
     }
+    const box = $('#enemy-cards'); box.innerHTML = '';
+    previewOrder().forEach((id, i) => {
+      const e = R.ENEMIES[id];
+      const c = el('button', 'ecard', `<div class="etop"><div class="eg">${e.g}</div><div><div class="eo">${i + 1}戦目</div><div class="en">${e.name}</div></div></div><div class="et">${e.trait}</div><div class="ego">押すと 1戦だけ れんしゅう</div>`);
+      c.addEventListener('click', () => startOne(id, 0));
+      box.appendChild(c);
+    });
   }
   function showTitle() {
-    $('#battle').hidden = true; $('#title-screen').hidden = false; $('#result').hidden = true;
-    $('#turn-label').textContent = ''; G.s = null;
+    G.s = null; G.run = null; G.busy = false; G.sel = null;
+    $('#battle').hidden = true; $('#title-screen').hidden = false; $('#sheet').hidden = true; $('#help').hidden = true;
+    $('#btn-quit').hidden = true; $('#turn-label').textContent = ''; $('#route').innerHTML = '';
+    renderTitle();
   }
-  function startGame(id, seed) {
-    G.enemyId = id; G.seed = seed || (Q.has('seed') ? +Q.get('seed') : ((Date.now() % 100000) + 1));
-    G.s = R.newGame(id, G.seed); G.undo = []; G.sel = null; G.busy = false; G.view = null; G.pre = null; G.preview = null; G.hoverInfo = null; G.lastBlow = null;
+  function startRun() {
+    G.mode = 'run'; G.run = R.newRun(G.seed, { rot: ROT }); G.s = G.run.fight; enterBattle();
+  }
+  function startOne(id, stage) {
+    G.mode = 'one'; G.run = null;
+    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, rot: ROT }); enterBattle();
+  }
+  function enterBattle() {
+    G.sel = null; G.busy = false; G.view = null; G.pre = null; G.turnSum = { e: 0, p: 0 }; G.hoverId = null;
+    $('#title-screen').hidden = true; $('#battle').hidden = false; $('#sheet').hidden = true; $('#btn-quit').hidden = false;
+    $('#btn-rot').hidden = !ROT;
     $('#log').innerHTML = ''; $('#enemy-dmg').innerHTML = ''; $('#player-dmg').innerHTML = '';
-    $('#title-screen').hidden = true; $('#battle').hidden = false; $('#result').hidden = true;
-    buildBoard(); renderAll();
+    const e = R.ENEMIES[G.s.enemyId];
+    $('#enemy-glyph').textContent = e.g; $('#enemy-name').textContent = e.name; $('#enemy-trait').textContent = e.trait;
+    log('lt', `${G.mode === 'run' ? (G.s.stage + 1) + '戦目 ' : ''}${e.name}　ターン 1`);
+    CHECK.fights++;
+    renderAll();
   }
 
-  // ------------------------------------------------------------ 盤面
-  function buildBoard() {
-    const b = $('#board'); b.innerHTML = '';
-    for (let i = 0; i < R.N; i++) { const c = el('div', 'cell'); c.dataset.cell = i; b.appendChild(c); }
-  }
-  function cellEl(i) { return $('#board').children[i]; }
-  function renderBoard() {
-    const s = D(); const d = R.derive(s.board, s.e); G.derived = d;
-    const ord = {}; for (const a of d.atk) ord[a.cell] = a.order;
-    const it = s.phase === 'place' ? s.intent : null;
-    for (let i = 0; i < R.N; i++) {
-      const c = cellEl(i), b = s.board[i];
-      c.className = 'cell'; c.innerHTML = '';
-      if (b) {
-        const idle = R.isActive(b) && !d.live[i]; // 効いていない札は点線（つながっていても、相手が働いていなければ点線）
-        let badge = '';
-        if (b.type === 'charge' && b.charge > 0) badge = `+${b.charge}`; // たまりの数（のせると「たまり N」と出る）
-        if (b.type === 'dodge' && s.p.dodgeCd > 0) badge = `休み${s.p.dodgeCd}`;
-        const t = tileEl(b.type, b.lv, { badge: b.sealed ? '' : badge, sealed: b.sealed, idle });
-        c.appendChild(t);
-        if (ord[i]) c.appendChild(el('span', 'ord', String(ord[i]))); // 発動の順の番号は、札の右上の角の外に出す（小さいマスで字に重なっていた）
-      }
-      if (it) {
-        if (it.cells.destroy.indexOf(i) >= 0) { c.classList.add('aim-destroy'); c.appendChild(el('div', 'aim', '破壊')); }
-        else if (it.cells.seal.indexOf(i) >= 0) { c.classList.add('aim-seal'); c.appendChild(el('div', 'aim', '封印')); }
-        else if (it.cells.rubble.indexOf(i) >= 0) { c.classList.add('aim-rubble'); c.appendChild(el('div', 'aim', 'がれき')); }
-      }
-      if (!G.busy && G.sel) {
-        if (G.sel.src != null && R.placeKind(G.s, G.sel.src, i)) c.classList.add('can');
-        if (G.sel.cell != null) { if (G.sel.cell === i) c.classList.add('sel'); else if (R.canSwap(G.s, G.sel.cell, i)) c.classList.add('can'); }
-      }
-    }
-    drawLinks(d, s.board);
-  }
-  // つながりの線：となり合うマスのすきまに、短い太線を引く（計算と同じ links をそのまま描く）
-  function jointXY(a, b) { // マス a と b のすきまに引く短い線の両はし
-    const wrap = $('#board-wrap').getBoundingClientRect();
-    const ra = cellEl(a).getBoundingClientRect(), rb = cellEl(b).getBoundingClientRect();
-    const ax = ra.left + ra.width / 2 - wrap.left, ay = ra.top + ra.height / 2 - wrap.top;
-    const bx = rb.left + rb.width / 2 - wrap.left, by = rb.top + rb.height / 2 - wrap.top;
-    const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1;
-    const ux = (bx - ax) / len, uy = (by - ay) / len, L = Math.max(9, ra.width * 0.13);
-    return `x1="${(mx - ux * L).toFixed(1)}" y1="${(my - uy * L).toFixed(1)}" x2="${(mx + ux * L).toFixed(1)}" y2="${(my + uy * L).toFixed(1)}"`;
-  }
-  function drawLinks(d, board) {
-    const svg = $('#links'), wrap = $('#board-wrap').getBoundingClientRect();
-    svg.setAttribute('viewBox', `0 0 ${wrap.width} ${wrap.height}`);
-    let h = '';
-    for (const [a, b] of d.links) {
-      const xy = jointXY(a, b);
-      if (d.LL[a].indexOf(b) < 0) { // つながっているが、まだ効いていない線
-        h += `<line ${xy} stroke="#8a93a8" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 6" opacity=".7" data-deadlink="${a}-${b}"/>`;
-        continue;
-      }
-      const fa = R.B[board[a].type].fam, fb = R.B[board[b].type].fam;
-      const col = FAM_COLOR[fa === 'atk' ? fb : (fb === 'atk' ? fa : (fa === 'enh' ? fa : fb))];
-      h += `<line ${xy} stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/>`;
-      h += `<line ${xy} stroke="${col}" stroke-width="6" stroke-linecap="round" data-link="${a}-${b}"/>`;
-    }
-    svg.innerHTML = h + '<g id="links-pre"></g>'; // links-pre … 置く前の「ここに置くと つながる」点線
-  }
-
-  // ------------------------------------------------------------ つながる相手を見せる（置く前）
-  // 持っている札（選んだ札。なければ、マウスをのせた棚の札）について、
-  //   盤面の「相手になれる札」を光らせ、空きマスに「置いたら何本つながるか」を出す。
-  // 数は rules.js の linksIfPlaced / linksIfSwapped（画面の側で条件を書き直さない）。
-  function heldInfo() {
-    if (G.sel) return G.sel.src != null ? { src: G.sel.src, picked: true } : { cell: G.sel.cell, picked: true };
-    const h = G.hoverInfo; if (h && h.src != null) return { src: h.src, picked: false };
-    return null;
-  }
-  function markLinks() {
-    for (const t of document.querySelectorAll('.tile.lk-mate, .tile.lk-dim')) t.classList.remove('lk-mate', 'lk-dim');
-    for (const c of document.querySelectorAll('#board .cell.lk-good')) c.classList.remove('lk-good');
-    for (const m of document.querySelectorAll('#board .lk-spot, #board .lk-pin')) m.remove();
-    const pre = $('#links-pre'); if (pre) pre.innerHTML = '';
-    const s = G.s; if (!s || G.busy || (s.phase !== 'place' && s.phase !== 'start')) return;
-    const held = heldInfo();
-    if (held) {
-      const hb = held.cell != null ? s.board[held.cell] : null;
-      const type = held.src != null ? R.srcType(s, held.src) : (hb && hb.type);
-      if (!type) return;
-      // 光らせる相手は rules.js が決める（数字のマスに置くと、本当に つながる札）。封印中の札を選んだときは空になる
-      const mates = held.src != null ? R.linkMates(s.board, type, s.e) : R.swapMates(s.board, held.cell, s.e);
-      for (let i = 0; i < R.N; i++) {
-        if (held.cell === i) continue;
-        const b = s.board[i], t = b && cellEl(i).querySelector('.tile'); if (!t) continue;
-        if (mates.indexOf(i) >= 0) t.classList.add('lk-mate'); else if (held.picked) t.classList.add('lk-dim');
-      }
-      // 数字を出すマスは rules.js が決める（空き・がれき。満杯のときは置きかえ）。置けないマス（手数0など）には出さない
-      const spots = held.src != null ? R.linkSpots(s.board, type, s.e) : R.swapSpots(s.board, held.cell, s.e);
-      for (const sp of spots) {
-        if (held.src != null ? !R.placeKind(s, held.src, sp.cell) : !R.canSwap(s, held.cell, sp.cell)) continue;
-        const c = cellEl(sp.cell); c.classList.add('lk-good');
-        if (s.board[sp.cell]) c.appendChild(el('span', 'lk lk-pin', `<i></i>${sp.n}`)); // 札があるマス（がれき・満杯のときの置きかえ）は小さい印
-        else c.appendChild(el('div', 'lk-spot', `<b>${sp.n}</b><span>つながる</span>`));
-      }
-    } else if (G.hoverInfo && G.hoverInfo.cell != null && R.isActive(s.board[G.hoverInfo.cell])) {
-      // 盤面の札にマウスをのせたとき：棚の中の「この札につながる札」を光らせる
-      const at = G.hoverInfo.cell;
-      for (const t of document.querySelectorAll('#shop .tile, #keep .tile')) if (R.linkMates(s.board, t.dataset.type, s.e).indexOf(at) >= 0) t.classList.add('lk-mate');
-    }
-  }
-  // 選んだ札を このマスに置いたら（入れかえたら）出る線を、点線で先に見せる
-  function drawPreLinks(cell) {
-    const pre = $('#links-pre'); if (!pre) return; pre.innerHTML = '';
-    const s = G.s; if (cell == null || !G.sel || G.busy || !s) return;
-    let ls = null;
-    if (G.sel.src != null) { if (R.placeKind(s, G.sel.src, cell)) ls = R.linksIfPlaced(s.board, R.srcType(s, G.sel.src), cell, s.e); }
-    else if (G.sel.cell != null && R.canSwap(s, G.sel.cell, cell)) ls = R.linksIfSwapped(s.board, G.sel.cell, cell, s.e);
-    if (!ls) return;
-    let h = '';
-    for (const j of ls) {
-      const xy = jointXY(cell, j);
-      h += `<line ${xy} stroke="#0d0f14" stroke-width="11" stroke-linecap="round"/><line ${xy} stroke="#ffe27a" stroke-width="6" stroke-linecap="round" stroke-dasharray="1 9" data-prelink="${cell}-${j}"/>`;
-      const t = cellEl(j).querySelector('.tile'); if (t) t.classList.add('hl');
-    }
-    pre.innerHTML = h;
-  }
-
-  // ------------------------------------------------------------ 敵・予告・自分
+  // ------------------------------------------------------------ 戦闘の画面
+  function log(cls, text) { const l = $('#log'); l.appendChild(el('div', cls, text)); l.scrollTop = l.scrollHeight; }
   function chip(cls, text) { return `<span class="chip ${cls}">${text}</span>`; }
+  function renderTop() {
+    const s = D();
+    $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}`;
+    const r = $('#route'); r.innerHTML = '';
+    if (G.run) G.run.order.forEach((id, i) => { const c = el('span', 'rt' + (i < G.run.stage ? ' done' : i === G.run.stage ? ' now' : ''), R.ENEMIES[id].g); c.title = `${i + 1}戦目 ${R.ENEMIES[id].name}`; r.appendChild(c); });
+  }
   function renderEnemy() {
-    const s = D(), e = s.e, def = R.ENEMIES[e.id];
-    const hp = num('eh', Math.max(0, e.hp));
-    $('#enemy-glyph').textContent = def.g; $('#enemy-name').textContent = def.name; $('#enemy-trait').textContent = def.trait;
-    $('#enemy-fill').style.width = (100 * hp / e.max) + '%'; $('#enemy-hp').textContent = `${hp} / ${e.max}`;
-    const es = G.view ? G.view.es : [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen];
+    const s = D(), e = s.e, hp = num('eh', Math.max(0, e.hp)), es = G.view ? G.view.es : [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen];
+    $('#enemy-fill').style.width = (hp / e.max * 100) + '%'; $('#enemy-hp').textContent = `${hp} / ${e.max}`;
     let h = '';
-    if (es[0]) h += chip('poison', `毒 ${es[0]}`);
-    if (es[1]) h += chip('fire', `炎 ${es[1]}`);
-    if (es[2]) h += chip('ice', `氷 ${es[2]}/${R.FREEZE_AT}`);
-    if (es[5]) h += chip('ice', '凍結（次の攻撃が半分）');
-    if (es[3]) h += chip('shock', `雷 ${es[3]}/${R.SHOCK_AT}`);
-    if (es[4]) h += chip('guard', `結界 ${es[4]}`);
+    if (es[0]) h += chip('poison', `毒 ${es[0]}`); if (es[1]) h += chip('fire', `炎 ${es[1]}`);
+    if (es[2]) h += chip('ice', `氷 ${es[2]}/${R.FREEZE_AT}`); if (es[3]) h += chip('shock', `雷 ${es[3]}/${R.SHOCK_AT}`);
+    if (es[5]) h += chip('ice', '凍結'); if (es[4]) h += chip('guard', `結界 ${es[4]}`);
     $('#enemy-status').innerHTML = h || chip('none', '状態なし');
   }
   function renderIntent() {
-    const s = D(), it = s.intent;
-    if (s.phase === 'start' || !it) {
-      $('#intent-moves').innerHTML = '戦いの前'; $('#intent-label').textContent = ''; $('#intent-lines').innerHTML = '<li>最初の攻撃ブロックを置くと、敵が予告を出す。</li>';
-      return;
-    }
-    const total = it.moves + (s.bonusUsed || 0), left = G.busy ? 0 : s.moves;
-    let pips = ''; for (let i = 0; i < total; i++) pips += `<span class="pip ${i < left ? 'on' : ''}"></span>`;
-    $('#intent-moves').innerHTML = `あと ${left} 手 <span class="pips">${pips}</span>` + (s.bonusUsed ? '<span class="rage" style="color:var(--shock)">感電で+1</span>' : '');
-    $('#intent-label').innerHTML = `${it.label}` + (it.rage ? '<span class="rage">怒り（攻撃が強い）</span>' : '');
+    const it = D().intent; if (!it) return;
+    $('#intent-label').innerHTML = it.label + (it.rage ? '<span class="rage">怒り</span>' : '');
     $('#intent-lines').innerHTML = R.intentLines(it).map(l => `<li class="${l.k}">${l.text}</li>`).join('');
   }
   function renderPlayer() {
-    const s = D(), p = s.p; const hp = num('ph', Math.max(0, p.hp)), sh = num('sh', p.shield), pc = num('pc', p.curse);
-    $('#player-fill').style.width = (100 * hp / p.max) + '%'; $('#player-hp').textContent = `${hp} / ${p.max}`;
+    const s = D(), p = s.p, hp = num('ph', Math.max(0, p.hp));
+    $('#player-fill').style.width = (hp / p.max * 100) + '%'; $('#player-hp').textContent = `${hp} / ${p.max}`;
+    const sh = num('sh', p.shield), cu = num('pc', p.curse), ch = num('ch', p.charge);
     let h = '';
-    if (sh) h += chip('shield', `シールド ${sh}`);
-    if (pc) h += chip('curse', `呪い ${pc}`);
+    if (sh) h += chip('shield', `シールド ${sh}`); if (cu) h += chip('curse', `呪い ${cu}`); if (ch) h += chip('charge', `たまり ${ch}`);
     $('#player-status').innerHTML = h || chip('none', '状態なし');
   }
-
-  // ------------------------------------------------------------ 棚・キープ
-  function fillSlot(slot, s, type, src) { // 棚・キープの1わく。いま置いても働かない札は点線（盤面の「働いていない札」と同じ見た目）
-    const t = tileEl(type, 1);
-    if (!R.canWork(s.board, type, s.e)) t.classList.add('lk-none');
-    if (G.sel && G.sel.src === src) t.classList.add('sel');
-    slot.appendChild(t);
-  }
-  function renderShop() {
-    const s = D(); const box = $('#shop'); box.innerHTML = '';
-    for (let i = 0; i < R.SHOP; i++) {
-      const slot = el('div', 'slot'); slot.dataset.shop = i;
-      if (s.shop[i]) fillSlot(slot, s, s.shop[i], i);
-      box.appendChild(slot);
+  const cellEl = i => $(`#board .cell[data-cell="${i}"]`);
+  function renderBoard() {
+    const s = D(), board = $('#board'); board.innerHTML = '';
+    const d = G.busy ? G.preD : R.derive(s);
+    const it = s.intent, nextRub = !G.busy && it && it.parts.some(p => p.k === 'rubble') ? it.cells.rubble : [];
+    const dn = it ? it.parts.filter(p => p.k === 'destroy').reduce((a, p) => a + p.n, 0) : 0;
+    const aimed = dn ? R.destroyTargets(d, dn) : [];
+    for (let i = 0; i < R.N; i++) {
+      const c = el('div', 'cell'); c.dataset.cell = i;
+      const id = s.board[i];
+      if (s.blocked.indexOf(i) >= 0) { c.classList.add('blocked'); c.appendChild(el('span', 'tag', 'がれき')); }
+      else if (id == null && nextRub.indexOf(i) >= 0) { c.classList.add('next-rubble'); c.appendChild(el('span', 'tag', '次 がれき')); }
+      if (id != null && !G.gone[id]) {
+        const card = s.cards[id], sealed = s.sealed.indexOf(id) >= 0;
+        const p = pieceEl(card, { d, cell: i, lv: lvOf(card.type), sealed, mark: sealed ? ['seal', '封印'] : aimed.indexOf(i) >= 0 ? ['destroy', '破壊'] : null });
+        if (G.sel === id) p.classList.add('sel');
+        c.appendChild(p);
+      } else if (!G.busy && s.blocked.indexOf(i) < 0) c.classList.add('can');
+      board.appendChild(c);
     }
-    const k = $('#keep'); k.innerHTML = ''; k.className = 'slot';
-    if (s.keep) fillSlot(k, s, s.keep, 'keep');
-    if (!G.busy && G.sel && typeof G.sel.src === 'number' && s.phase === 'place') k.classList.add('can');
-    $('#shop-box').classList.toggle('off', G.busy || s.phase === 'won' || s.phase === 'lost');
-    $('#moves-label').textContent = s.phase === 'start' ? '最初の1個（手数なし）' : `のこり ${G.busy ? 0 : s.moves} 手`;
-    $('#keep-wrap').style.visibility = s.phase === 'start' ? 'hidden' : 'visible';
+    return d;
   }
-
-  // ------------------------------------------------------------ 予想・ボタン・案内
+  function renderHand() {
+    const s = D(), hand = $('#hand'); hand.innerHTML = '';
+    hand.style.setProperty('--hn', Math.max(R.HAND, s.hand.length));
+    hand.classList.toggle('can', !G.busy && G.sel != null && R.cellOf(s, G.sel) >= 0);
+    for (const id of s.hand) {
+      const slot = el('div', 'slot'); slot.dataset.slot = id;
+      if (s.board.indexOf(id) < 0 && !G.gone[id]) {
+        const card = s.cards[id], sealed = s.sealed.indexOf(id) >= 0;
+        const p = pieceEl(card, { lv: lvOf(card.type), sealed, mark: sealed ? ['seal', '封印'] : null });
+        if (G.sel === id) p.classList.add('sel');
+        slot.appendChild(p);
+      }
+      hand.appendChild(slot);
+    }
+  }
+  let lastF = null;
   function renderForecast() {
     const s = G.s, box = $('#forecast');
-    if (G.busy) { box.innerHTML = '<span class="f1">発動中…</span>'; return; }
-    if (s.phase !== 'place') { box.innerHTML = '<span class="f1">最初の攻撃ブロックを置くと、ここに「このターンの予想」が出る。</span>'; return; }
-    const f = R.forecast(s); G.fc = f;
-    let h = `<span class="f1">いま発動したときの予想</span><span><span class="deal">与える <b id="fc-deal">${f.dealt}</b></span>　<span class="take">受ける <b id="fc-take">${f.taken}</b></span>`;
-    if (f.won) h += '　<span class="big">たおせる！</span>';
-    if (f.lost) h += '　<span class="big" style="color:#ff8f8f">このままだと負ける</span>';
-    h += '</span>';
-    const p = G.preview;
-    if (p) {
-      const dd = p.f.dealt - f.dealt, dt = p.f.taken - f.taken;
-      h += `<span>${p.label} → 与える <span class="delta ${dd < 0 ? 'bad' : ''}">${dd >= 0 ? '+' : ''}${dd}</span>　受ける <span class="delta ${dt > 0 ? 'bad' : ''}">${dt >= 0 ? '+' : ''}${dt}</span>${p.f.won ? '　<span class="big">たおせる！</span>' : ''}</span>`;
-    }
+    if (G.busy) { box.innerHTML = '<div class="f1">発動中…</div>'; return; }
+    const f = lastF = R.forecast(s); if (!f) { box.innerHTML = ''; return; }
+    let h = `<div class="f1">いま発動すると（予想）</div><div><span class="deal">与える <b id="fc-deal">${f.dealt}</b></span>　<span class="take">受ける <b id="fc-take">${f.taken}</b></span></div>`;
+    h += `<div class="sub">敵HP ${Math.max(0, s.e.hp)} → ${f.eHp} ／ あなた ${s.p.hp} → ${f.pHp}</div>`;
+    if (f.won) h += '<div class="big">この発動で 倒せる！</div>';
+    else if (f.lost) h += '<div class="delta bad">このままだと 負ける</div>';
+    h += '<div id="fc-pre" class="sub"></div>';
     box.innerHTML = h;
   }
-  function renderButtons() {
-    const s = G.s, end = $('#btn-end'), undo = $('#btn-undo');
-    undo.disabled = G.busy || !G.undo.length;
-    end.disabled = G.busy || s.phase !== 'place';
-    end.classList.toggle('ready', !G.busy && s.phase === 'place' && s.moves === 0);
-    end.textContent = (s.phase === 'place' && s.moves > 0) ? `発動（${s.moves}手のこす）` : '発動！';
-    $('#turn-label').textContent = s.phase === 'start' ? 'じゅんび' : `ターン ${D().turn}`;
-  }
-  function renderGuide() {
-    const s = G.s; let t = '';
-    if (G.busy) t = 'あなたの攻撃 → 敵の行動 → ターンの終わり';
-    else if (s.phase === 'start') t = G.sel ? '置くマスを選ぼう' : '最初の攻撃ブロックを 棚から1つ選ぼう';
-    else if (s.phase === 'place') {
-      if (G.sel && G.sel.src != null) t = '置くマスを選ぼう（数字＝つながる数）';
-      else if (G.sel && G.sel.cell != null) t = '入れかえる相手のマスを選ぼう（1手つかう）';
-      else if (s.moves > 0) t = `棚のブロックを選んで盤面へ（あと ${s.moves} 手）`;
-      else t = '「発動！」を押そう';
-    }
-    $('#guide').textContent = t;
-  }
-
-  // ------------------------------------------------------------ 説明（右下）
-  function partnersOf(type) {
-    const fams = {}; const names = [];
-    for (const t of R.TYPES) if (R.works(type, t)) { (fams[R.B[t].fam] = fams[R.B[t].fam] || []).push(R.B[t].name); }
-    for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) if (fams[f]) {
-      const all = R.TYPES.filter(t => R.B[t].fam === f).length;
-      names.push(fams[f].length === all ? `${R.FAMS[f]}ブロック全部` : fams[f].join('・'));
-    }
-    return names;
-  }
-  function blockHead(type, lv) {
-    const d = R.B[type];
-    return `<h3>${d.name}${type !== 'rubble' ? ` <span class="sub">Lv${lv}</span>` : ''}<span class="fam" style="background:${FAM_COLOR[d.fam]}">${R.FAMS[d.fam]}</span></h3>`;
+  // えらんだブロックを そのマスに置いたら、予想がどう変わるか
+  function previewAt(cell) {
+    const p = $('#fc-pre'); if (!p) return;
+    if (G.sel == null || cell < 0 || !lastF) { p.textContent = ''; return; }
+    const c = R.cloneState(G.s); if (!R.put(c, G.sel, cell)) { p.textContent = ''; return; }
+    const f = R.forecast(c), a = f.dealt - lastF.dealt, b = f.taken - lastF.taken;
+    const sg = x => (x > 0 ? '+' + x : x < 0 ? '−' + (-x) : '±0');
+    p.innerHTML = `ここに置くと：与える <span class="delta${a < 0 ? ' bad' : ''}">${sg(a)}</span>　受ける <span class="delta${b > 0 ? ' bad' : ''}">${sg(b)}</span>`;
   }
   function renderDetail() {
-    const box = $('#detail'), s = D(), info = G.hoverInfo || (G.sel && (G.sel.src != null ? { src: G.sel.src } : { cell: G.sel.cell }));
-    let h = '';
-    if (info && info.src != null && R.srcType(s, info.src)) {
-      const type = R.srcType(s, info.src);
-      h += blockHead(type, 1) + `<p>${R.blockText(type, 1)}</p>`;
-      const pn = partnersOf(type);
-      h += pn.length ? `<p class="sub">つながる相手：${pn.join(' / ')}</p>` : `<p class="sub">ひとりで働く（どこに置いてもよい）。</p>`;
-    } else if (info && info.cell != null && s.board[info.cell]) {
-      const b = s.board[info.cell], d = G.derived || R.derive(s.board, s.e);
-      h += blockHead(b.type, b.lv) + `<p>${R.blockText(b.type, b.lv)}</p>`;
-      if (b.sealed) h += `<p class="warn">封印中（あと${b.sealed}ターン働かない）。</p>`;
-      else if (b.type !== 'rubble') {
-        const a = d.atk.find(x => x.cell === info.cell);
-        if (a) h += `<p class="now">いまの働き（${a.order}番目に発動）</p><ul>${R.attackLines(a).map(l => `<li>${l}</li>`).join('')}</ul>`;
-        else {
-          const ln = d.LL[info.cell].map(j => R.B[s.board[j].type].name);
-          if (ln.length) h += `<p class="now">つながっている：${ln.join('・')}</p>`;
-          if (!d.live[info.cell]) h += `<p class="warn">いまは働いていない。${R.idleHint(b.type)}</p>`;
-          if (b.type === 'charge') h += `<p class="now">たまり ${b.charge}</p>`;
-          if (b.type === 'dodge') h += `<p class="now">${s.p.dodgeCd > 0 ? `休み中（あと${s.p.dodgeCd}ターン）` : 'よける準備ができている'}（休みは ${d.dodgeRest} ターン）</p>`;
-        }
-        if (b.lv < R.MAXLV) h += `<p class="sub">Lv${b.lv + 1}：${R.blockText(b.type, b.lv + 1)}</p>`;
-      }
-    } else {
-      // 何も選んでいないとき：スキルの一覧（発動の順）
-      const d = G.derived || R.derive(s.board, s.e);
-      if (!G.showSkills) {
-        h += `<p class="sub">ブロックにマウスをのせると、説明が出る。</p><button class="btn" id="btn-skills">スキル一覧を見る</button>`;
-        box.innerHTML = h; return;
-      }
-      h += `<h3>スキル一覧 <span class="sub">発動の順</span></h3>`;
-      if (!d.atk.length) h += `<p class="sub">攻撃ブロックがない。攻撃ブロックを置くと、ターンごとに発動する。</p>`;
-      for (const a of d.atk) { const ls = R.attackLines(a); h += `<div class="sk"><b>${a.order}　${R.B[a.type].name}</b>　${ls[0]}${ls.length > 1 ? `　<span class="sub">＋効果${ls.length - 1}つ</span>` : ''}</div>`; }
-      const df = [];
-      if (d.shieldGain) df.push(`シールド+${d.shieldGain}` + (d.shieldKeep ? `（${Math.round(d.shieldKeep * 100)}%残る）` : ''));
-      if (d.tough) df.push(`堅牢 ヒットごと−${d.tough}`);
-      if (d.dodgeRest) df.push(`回避（休み${d.dodgeRest}ターン）`);
-      if (d.reflect) df.push(`反射 ${Math.round(d.reflect * 100)}%`);
-      if (d.regen) df.push(`再生 +${d.regen}`);
-      if (df.length) h += `<div class="sk defn"><b>守り</b><br>${df.join(' ／ ')}</div>`;
-      h += `<button class="btn" id="btn-skills">とじる</button>`;
+    const s = D(), box = $('#detail'), id = G.hoverId != null ? G.hoverId : G.sel;
+    if (id == null || !s.cards[id]) {
+      box.innerHTML = '<p class="sub">ブロックに カーソルをのせると（スマホは押すと）、説明が出る。</p>' +
+        ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('');
+      return;
     }
+    const card = s.cards[id], def = R.B[card.type], lv = lvOf(card.type), cell = s.board.indexOf(id);
+    let h = `<h3>${def.name}${lv > 1 ? ` Lv${lv}` : ''} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></h3><p>${R.blockText(card.type, lv)}</p>`;
+    if (def.kw) h += `<p class="kw"><b>${R.KW[def.kw].name}</b>：${R.KW[def.kw].text}</p>`;
+    h += `<p class="sub">${R.FAM_HINT[def.fam]}</p>`;
+    if (cell >= 0) {
+      const sum = R.summary(G.busy ? G.preD : R.derive(s), cell);
+      h += `<p class="${sum.idle ? 'warn' : 'now'}">いま：</p><ul>${sum.lines.map(l => `<li>${l}</li>`).join('')}</ul>`;
+    } else if (s.sealed.indexOf(id) >= 0) h += '<p class="warn">封印：このターン、凸も凹も はまらない。</p>';
     box.innerHTML = h;
   }
-  function highlightLinks(cell) {
-    for (const t of document.querySelectorAll('#board .tile.hl')) t.classList.remove('hl');
-    if (cell == null || !G.derived) return;
-    for (const j of G.derived.LL[cell]) { const t = cellEl(j).querySelector('.tile'); if (t) t.classList.add('hl'); }
+  function renderGuide() {
+    const s = G.s; let t;
+    if (G.busy) t = '発動中…';
+    else if (G.sel != null) t = '置くマスを押す。黄色いマスは「はまる」所（数字は はまる数）。';
+    else if (s.board.every(x => x == null)) t = '手札のブロックを 盤面に置こう（ドラッグ。または、えらんでからマスを押す）。';
+    else t = '組めたら「発動！」。置き方は、発動するまで何回でも変えられる。';
+    $('#guide').textContent = t;
   }
-
+  function renderDeckBtn() {
+    const s = D(); $('#btn-deck').textContent = `山札 ${s.deck.length} ／ 捨て札 ${s.discard.length}` + (s.gone.length ? ` ／ 破壊 ${s.gone.length}` : '') + '　（見る）';
+  }
+  // えらんだブロックが はまるマスに、印と数を出す
+  function markSpots() {
+    document.querySelectorAll('#board .lk-spot').forEach(x => x.remove());
+    document.querySelectorAll('#board .cell.lk-good').forEach(x => x.classList.remove('lk-good'));
+    if (G.busy || G.sel == null) return;
+    const s = G.s, from = R.cellOf(s, G.sel);
+    for (let i = 0; i < R.N; i++) {
+      if (i === from) continue;
+      const ls = R.linksIfPut(s, G.sel, i); if (!ls) continue;
+      const n = ls.filter(l => l.ok).length; if (!n) continue;
+      if (s.board[i] != null) continue; // 札のあるマス（入れかえ）には印を出さない（札のすきまから色が見えて、まぎらわしかった）
+      const c = cellEl(i); c.classList.add('lk-good'); c.dataset.spot = n;
+      c.appendChild(el('div', 'lk-spot', String(n)));
+    }
+  }
   function renderAll() {
-    renderBoard(); renderEnemy(); renderIntent(); renderPlayer(); renderShop(); renderForecast(); renderButtons(); renderGuide(); renderDetail();
-    markLinks();
+    renderTop(); renderEnemy(); renderIntent(); renderPlayer(); renderBoard(); renderHand(); renderForecast(); renderDetail(); renderGuide(); renderDeckBtn(); markSpots();
+    const end = $('#btn-end'); end.disabled = G.busy; end.classList.toggle('ready', !G.busy && G.s.board.some(x => x != null));
+    $('#btn-clear').disabled = G.busy || G.s.board.every(x => x == null);
+    $('#btn-rot').disabled = G.busy || G.sel == null;
   }
 
-  // ------------------------------------------------------------ 手（クリックでもドラッグでも、ここを通る）
-  function pushUndo() { G.undo.push(R.cloneState(G.s)); }
-  function doPlace(src, cell) {
-    if (G.busy || !R.placeKind(G.s, src, cell)) { sfx('bad'); return false; }
-    const wasStart = G.s.phase === 'start';
-    if (!wasStart) pushUndo();
-    R.place(G.s, src, cell);
-    if (wasStart) { G.undo = []; logLine('lt', `ターン ${G.s.turn}`); }
-    G.sel = null; G.preview = null; G.hoverInfo = null; sfx('place'); renderAll();
-    const t = cellEl(cell).querySelector('.tile'); if (t) t.classList.add('fx-new');
-    return true;
-  }
-  function doSwap(a, b) {
-    if (G.busy || !R.canSwap(G.s, a, b)) { sfx('bad'); return false; }
-    pushUndo(); R.swap(G.s, a, b); G.sel = null; G.preview = null; G.hoverInfo = null; sfx('place'); renderAll(); return true;
-  }
-  function doKeep(idx) {
-    if (G.busy || G.s.phase !== 'place' || !G.s.shop[idx]) return false;
-    pushUndo(); R.toKeep(G.s, idx); G.sel = null; G.preview = null; sfx('place'); renderAll(); return true;
-  }
-  function doUndo() {
-    if (G.busy || !G.undo.length) return;
-    G.s = G.undo.pop(); G.sel = null; G.preview = null; G.hoverInfo = null; renderAll();
-  }
-  function doEnd() {
-    if (G.busy || G.s.phase !== 'place') return false;
-    const fc = R.forecast(G.s); const shown = { deal: $('#fc-deal') ? +$('#fc-deal').textContent : null, take: $('#fc-take') ? +$('#fc-take').textContent : null };
-    G.pre = R.cloneState(G.s); const t0 = G.s.stats.total, k0 = G.s.stats.taken, turn = G.s.turn;
-    const ev = R.endTurn(G.s);
-    G.undo = []; G.sel = null; G.preview = null; G.hoverInfo = null; G.busy = true; G.turnSum = { e: 0, p: 0 };
-    G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, pc: G.pre.p.curse, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen] };
+  // ------------------------------------------------------------ 操作（置き方は、発動するまで何回でも変えられる）
+  function uiSelect(id) { if (G.busy) return; G.sel = G.sel === id ? null : id; renderAll(); }
+  function uiPut(id, cell) {
+    if (G.busy) return false;
+    const before = R.derive(G.s).links.filter(l => l.ok).length;
+    if (!R.put(G.s, id, cell)) { sfx('bad'); return false; }
+    G.sel = null; G.hoverCell = -1;
     renderAll();
-    play(ev, () => {
-      // 画面に出ている数字と、ルールの計算結果を比べる（ずれたら記録）
-      const dispE = parseInt($('#enemy-hp').textContent, 10), dispP = parseInt($('#player-hp').textContent, 10);
-      const dealt = G.s.stats.total - t0, taken = G.s.stats.taken - k0;
-      const bad = [];
-      if (dispE !== Math.max(0, G.s.e.hp)) bad.push(`敵HP 表示${dispE} 計算${G.s.e.hp}`);
-      if (dispP !== Math.max(0, G.s.p.hp)) bad.push(`自分HP 表示${dispP} 計算${G.s.p.hp}`);
-      if (shown.deal !== dealt || fc.dealt !== dealt) bad.push(`与える予想 表示${shown.deal} 実際${dealt}`);
-      if (shown.take !== taken || fc.taken !== taken) bad.push(`受ける予想 表示${shown.take} 実際${taken}`);
-      if (G.turnSum.e !== dealt) bad.push(`演出の合計 ${G.turnSum.e} 実際${dealt}`);
-      if (G.turnSum.p !== taken) bad.push(`演出の被ダメ合計 ${G.turnSum.p} 実際${taken}`);
-      CHECK.turns++; for (const b of bad) CHECK.mismatches.push(`T${turn}: ${b}`);
-      if (AUTO) sampleLayout();
-      G.busy = false; G.view = null; G.pre = null;
-      renderAll();
-      if (G.s.phase === 'place') logLine('lt', `ターン ${G.s.turn}`);
-      if (G.s.phase === 'won' || G.s.phase === 'lost') showResult();
-    });
+    sfx(R.derive(G.s).links.filter(l => l.ok).length > before ? 'link' : 'place');
+    const p = cellEl(cell).querySelector('.pc'); if (p) p.classList.add('fx-new');
     return true;
   }
-
-  // ------------------------------------------------------------ 発動の再生
-  function logLine(cls, text) { const l = $('#log'); l.appendChild(el('div', cls, text)); l.scrollTop = l.scrollHeight; }
-  function pulse(cell, cls) {
-    if (cell == null) return; const t = cellEl(cell) && cellEl(cell).querySelector('.tile'); if (!t) return;
-    t.classList.remove(cls || 'fx-fire'); void t.offsetWidth; t.classList.add(cls || 'fx-fire');
+  function uiTake(id) { if (G.busy || !R.take(G.s, id)) return false; G.sel = null; renderAll(); return true; }
+  function uiClear() { if (G.busy) return; R.clearBoard(G.s); G.sel = null; renderAll(); }
+  function uiRotate() { if (G.busy || G.sel == null) return; if (R.rotate(G.s, G.sel)) renderAll(); }
+  function clickPiece(id) {
+    if (G.busy) return;
+    const cell = R.cellOf(G.s, id);
+    if (G.sel != null && G.sel !== id && cell >= 0) uiPut(G.sel, cell); // 盤面のブロックを押した：そこへ置く（入れかえ）
+    else uiSelect(id);
   }
-  function showDmg(who, n, extra, heal) {
-    const slot = $(who === 'e' ? '#enemy-dmg' : '#player-dmg');
-    if (!heal) G.turnSum[who] += n;
-    slot.innerHTML = `<span class="last fx-pop ${heal ? 'heal' : ''}">${heal ? '+' : '−'}${n}${extra ? ' ' + extra : ''}</span><span class="sum">合計 −${G.turnSum[who]}</span>`;
-  }
-  const DELAY = { fire: 230, hit: 170, consume: 300, shock: 420, freeze: 420, shield: 240, eact: 520, ehit: 330, reflect: 300, tick: 320, curse: 320, end: 60 };
-  function applyEvent(e, st) {
-    const B = R.B, pre = G.pre;
-    G.view = { eh: e.eh, ph: e.ph, sh: e.sh, pc: e.pc, es: e.es };
-    switch (e.t) {
-      case 'shield': for (const c of e.cells) pulse(c); logLine('lp', `盾：シールド+${e.add}`); break;
-      case 'fire': {
-        st.hitN = 0; pulse(e.cell); if (e.src !== e.cell) pulse(e.src);
-        const b = pre.board[e.cell], nm = b ? B[b.type].name : '攻撃', o = (G.derived.atk.find(a => a.cell === e.cell) || {}).order || '';
-        logLine('lp', e.mode === 'main' ? `${o} ${nm} が発動` : e.mode === 're' ? `　再発動（${Math.round(e.mult * 100)}%）` : `　反撃（${Math.round(e.mult * 100)}%）`);
-        break;
-      }
-      case 'hit': {
-        if (e.dodged) { logLine('', '　→ よけられた'); break; }
-        if (e.kind === 'chase') pulse(e.src);
-        const ex = []; if (e.fire) ex.push(`炎+${e.fire}`); if (e.armorCut) ex.push(`装甲−${e.armorCut}`); if (e.guardCut) ex.push(`結界−${e.guardCut}`);
-        logLine('', `　→ ${e.kind === 'chase' ? '追撃 ' : ''}${e.dmg}ダメージ${ex.length ? '（' + ex.join('・') + '）' : ''}${e.heal ? `　HP+${e.heal}` : ''}`);
-        showDmg('e', e.dmg); $('#enemy-portrait').classList.remove('fx-hit'); void $('#enemy-portrait').offsetWidth; if (e.dmg > 0) $('#enemy-portrait').classList.add('fx-hit');
-        sfx('hit', st.hitN++); break;
-      }
-      case 'consume': for (const c of e.cells) pulse(c); logLine('lp', `　毒消費：毒${e.n}を消して ${e.dmg}ダメージ`); showDmg('e', e.dmg, '毒消費'); sfx('big'); break;
-      case 'shock': logLine('lp', `　感電！ ${e.dmg}ダメージ、次のターンの手数+1`); showDmg('e', e.dmg, '感電'); sfx('big'); break;
-      case 'freeze': logLine('lp', '　凍結！ 敵の次の攻撃が半分になる'); sfx('big'); break;
-      case 'thorn': logLine('le', `　トゲ：${e.dmg}ダメージ受けた${e.shield ? `（シールド−${e.shield}）` : ''}`); if (e.dmg) showDmg('p', e.dmg, 'トゲ'); break;
-      case 'eact': logLine('le', `敵の行動：${e.label}`); break;
-      case 'ehit': {
-        if (e.dodged) { for (const c of e.cells) pulse(c); logLine('le', `　← ${e.raw}の攻撃を よけた！`); sfx('place'); break; }
-        const ex = []; if (e.ice) ex.push(`凍結−${e.ice}`); if (e.tough) ex.push(`堅牢−${e.tough}`); if (e.shield) ex.push(`シールド−${e.shield}`);
-        logLine('le', `　← ${e.raw}の攻撃 → ${e.dmg}ダメージ${ex.length ? '（' + ex.join('・') + '）' : ''}`);
-        showDmg('p', e.dmg); if (e.dmg > 0) G.lastBlow = `${pre.intent.label}（${e.raw}）`; sfx('ehit'); break;
-      }
-      case 'reflect': for (const c of e.cells) pulse(c); logLine('lp', `　反射：${e.dmg}ダメージ`); showDmg('e', e.dmg, '反射'); break;
-      case 'guard': logLine('le', `　敵が結界 ${e.n} をはった`); break;
-      case 'seal': for (const c of e.cells) if (pre.board[c]) pre.board[c].sealed = 2; renderBoard(); logLine('le', `　封印：${e.cells.length}個のブロックが働かなくなった`); break;
-      case 'destroy': for (const c of e.cells) pre.board[c] = null; renderBoard(); logLine('le', e.cells.length ? `　破壊：${e.cells.length}個のブロックが消えた` : '　破壊：ねらわれたマスは空だった'); break;
-      case 'rubble': for (const c of e.cells) pre.board[c] = R.mk('rubble'); renderBoard(); logLine('le', e.cells.length ? `　がれきが${e.cells.length}個落ちた` : '　がれき：マスがふさがっていて落ちなかった'); break;
-      case 'cleanse': logLine('le', '　脱皮：敵の状態が全部消えた'); break;
-      case 'cursed': logLine('le', `　呪い+${e.n}`); break;
-      case 'eheal': logLine('le', `　敵がHPを${e.n}回復`); break;
-      case 'tick': logLine('lp', `毒：${e.dmg}ダメージ`); showDmg('e', e.dmg, '毒'); break;
-      case 'curse': logLine('le', `呪い：${e.dmg}ダメージ受けた`); showDmg('p', e.dmg, '呪い'); G.lastBlow = `呪い（${e.dmg}）`; break;
-      case 'regen': for (const c of e.cells) pulse(c); logLine('lp', `再生：HP+${e.n}`); break;
-      case 'eregen': logLine('le', `敵の再生：HP+${e.n}`); break;
-      case 'won': sfx('win'); break;
-      case 'lost': sfx('lose'); break;
-    }
-    renderEnemy(); renderPlayer();
-  }
-  function play(ev, done) {
-    let i = 0; const st = { hitN: 0 };
-    const step = () => {
-      for (;;) {
-        if (i >= ev.length) { done(); return; }
-        const e = ev[i++];
-        try { applyEvent(e, st); if (AUTO && G.speed > 0) sampleLayout(); } catch (err) { CHECK.errors.push('play: ' + err.message); }
-        const d = G.speed > 0 ? (DELAY[e.t] == null ? 260 : DELAY[e.t]) / G.speed : 0;
-        if (d > 0) { setTimeout(step, d); return; }
-      }
-    };
-    step();
-  }
-
-  // ------------------------------------------------------------ 結果
-  function showResult() {
-    const s = G.s, won = s.phase === 'won', st = s.stats;
-    const rows = Object.keys(st.dealt).map(k => [R.B[k] ? R.B[k].name : (SRC_NAMES[k] || k), st.dealt[k]]).sort((a, b) => b[1] - a[1]);
-    const max = rows.length ? rows[0][1] : 1;
-    let h = `<h2 class="${won ? 'res-win' : 'res-lose'}" id="result-title">${won ? '勝ち！' : '負け…'}</h2>`;
-    h += `<p>${R.ENEMIES[s.enemyId].name}　／　${s.turn}ターン　／　のこりHP ${Math.max(0, s.p.hp)}（敵 ${Math.max(0, s.e.hp)}）</p>`;
-    if (!won) h += `<p class="res-lose">最後に受けた攻撃：${G.lastBlow || '—'}。受けたダメージ ${st.taken}、防いだ ${st.blocked}、回復 ${st.healed}。</p>`;
-    else h += `<p>受けたダメージ ${st.taken}、防いだ ${st.blocked}、回復 ${st.healed}。</p>`;
-    h += `<h3>何が効いたか（与えたダメージの内訳）</h3><div class="brk">`;
-    for (const [n, v] of rows) h += `<span>${n}</span><span><span class="bb" style="display:block;width:${Math.max(2, 100 * v / max)}%"></span></span><span>${v}</span>`;
-    h += `</div><div class="row"><button class="btn primary" id="btn-again">もう一度（同じ敵）</button><button class="btn" id="btn-back">敵をえらぶ</button></div>`;
-    $('#result-sheet').innerHTML = h; $('#result').hidden = false;
-    $('#btn-again').addEventListener('click', () => startGame(G.enemyId));
-    $('#btn-back').addEventListener('click', showTitle);
-    if (AUTO) sampleLayout();
-    CHECK.done = true; CHECK.result = { phase: s.phase, turn: s.turn, pHp: s.p.hp, eHp: s.e.hp };
-  }
-
-  // ------------------------------------------------------------ あそびかた
-  function showHelp() {
-    let h = `<h2>あそびかた</h2><ul>
-      <li>敵は「次の行動」と「あと何手か」を予告する。その<b>手数</b>だけ、棚のブロックを盤面に置ける。</li>
-      <li>盤面のブロックは字だけで出る。マウスをのせる（スマホはタップ）と、名前と説明が出る。</li>
-      <li>置きおわって「発動！」を押すと、<b>あなたの攻撃ブロックが番号順（左上から）に発動 → 敵の行動 → ターンの終わり</b>。盤面は次のターンにも残る。</li>
-      <li><b>たて・よこに となり合うブロックは つながる</b>（線が出る）。攻撃ブロックに属性や特殊をつなげると、その攻撃にのる。強化ブロックは、つながったブロックを強くする。</li>
-      <li><b>色のついた線＝いま効いている。</b>うすい点線は「つながっているが、まだ効いていない」（例：攻撃につながっていない毒に、増幅をつないだとき）。</li>
-      <li>範囲攻撃だけは、ななめのブロックとも つながる。</li>
-      <li>同じ種類の上に重ねると<b>レベルアップ</b>（Lv3まで）。ちがう種類の上に置くと置きかえ。</li>
-      <li>盤面のブロックを選んで別のマスを選ぶと<b>入れかえ</b>（1手）。棚の1個を<b>キープ</b>に取っておける（手数なし）。</li>
-      <li>点線のブロックは、いまは働いていない（棚の点線のブロックは、いま置いても働かない）。</li>
-      <li>棚のブロックを選ぶと、<b>つながる相手が黄色く光り</b>、つながるマスに数字が出る。マスにマウスをのせると、出る線が点線で見える。</li>
-    </ul><h3>ブロック一覧（Lv1の数字）</h3>`;
-    for (const f of ['atk', 'elem', 'spec', 'enh', 'def']) {
-      h += `<h3 style="color:${FAM_COLOR[f]}">${R.FAMS[f]}</h3><div class="cat">`;
-      for (const t of R.TYPES) if (R.B[t].fam === f) h += `<div class="ci"><span class="cg" style="border-color:${FAM_COLOR[f]}">${R.B[t].g}</span><span><b>${R.B[t].name}</b>　${R.blockText(t, 1)}</span></div>`;
-      h += '</div>';
-    }
-    h += `<div class="row"><button class="btn primary" id="btn-help-close">とじる</button></div>`;
-    $('#help-sheet').innerHTML = h; $('#help').hidden = false;
-    $('#btn-help-close').addEventListener('click', () => { $('#help').hidden = true; });
-  }
-
-  // ------------------------------------------------------------ 入力（クリックとドラッグ）
-  function targetInfo(node) {
-    const slot = node.closest && node.closest('[data-shop]'); if (slot) return { src: +slot.dataset.shop };
-    if (node.closest && node.closest('#keep')) return { keep: true };
-    const c = node.closest && node.closest('.cell'); if (c) return { cell: +c.dataset.cell };
-    return null;
-  }
-  function clickOn(info) {
-    if (!info || G.busy || !G.s) return;
-    const s = G.s;
-    if (info.src != null) { // 棚
-      if (!s.shop[info.src]) return;
-      G.sel = (G.sel && G.sel.src === info.src) ? null : { src: info.src };
-    } else if (info.keep) { // キープ
-      if (G.sel && typeof G.sel.src === 'number') { doKeep(G.sel.src); return; }
-      if (s.keep) G.sel = (G.sel && G.sel.src === 'keep') ? null : { src: 'keep' };
-    } else if (info.cell != null) { // 盤面
-      if (G.sel && G.sel.src != null) { doPlace(G.sel.src, info.cell); return; }
-      if (G.sel && G.sel.cell != null) { if (G.sel.cell === info.cell) G.sel = null; else { doSwap(G.sel.cell, info.cell); return; } }
-      else if (s.board[info.cell] && s.phase === 'place') G.sel = { cell: info.cell };
-    }
-    G.preview = null; renderAll();
-  }
-  function previewFor(info) {
-    // 選んだブロックを このマスに置いたら（入れかえたら）予想がどう変わるか
-    if (!G.sel || G.busy || G.s.phase !== 'place' || !info || info.cell == null) return null;
-    const c = R.cloneState(G.s); let label;
-    if (G.sel.src != null) {
-      const kind = R.placeKind(c, G.sel.src, info.cell); if (!kind) return null;
-      R.place(c, G.sel.src, info.cell); label = { new: 'ここに置くと', up: 'レベルアップすると', replace: '置きかえると' }[kind];
-    } else if (G.sel.cell != null) {
-      if (!R.swap(c, G.sel.cell, info.cell)) return null; label = '入れかえると';
-    } else return null;
-    return { f: R.forecast(c), label };
-  }
+  // ドラッグ（マウスでも指でも）
   let drag = null;
-  document.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || G.busy || !G.s) return;
-    const info = targetInfo(e.target); if (!info) return;
-    drag = { info, x: e.clientX, y: e.clientY, moved: false };
+  document.addEventListener('pointerdown', ev => {
+    if (G.busy || !G.s || ev.button > 0) return;
+    const p = ev.target.closest && ev.target.closest('#board .pc, #hand .pc'); if (!p) return;
+    drag = { id: +p.dataset.id, x: ev.clientX, y: ev.clientY, on: false, el: p };
   });
-  document.addEventListener('pointermove', e => {
-    if (drag) {
-      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) {
-        const s = G.s, i = drag.info;
-        const type = i.src != null ? s.shop[i.src] : i.keep ? s.keep : (s.board[i.cell] && s.phase === 'place' ? s.board[i.cell].type : null);
-        if (!type) { drag = null; return; }
-        drag.moved = true;
-        G.sel = i.src != null ? { src: i.src } : i.keep ? { src: 'keep' } : { cell: i.cell };
-        const gh = $('#drag-ghost'); gh.innerHTML = ''; gh.appendChild(tileEl(type, i.cell != null ? s.board[i.cell].lv : 1)); gh.hidden = false;
-        renderAll();
-      }
-      if (drag && drag.moved) { const gh = $('#drag-ghost'); gh.style.left = e.clientX + 'px'; gh.style.top = e.clientY + 'px'; }
-    }
-    // のせたマス・ブロックの説明と、置いたときの予想
-    const info = targetInfo(e.target);
-    const key = info ? JSON.stringify(info) : '';
-    if (key !== G.hoverKey) {
-      G.hoverKey = key;
-      if (G.busy || !G.s) return;
-      G.hoverInfo = info && (info.keep ? (G.s.keep ? { src: 'keep' } : null) : info.src != null ? (G.s.shop[info.src] ? info : null) : (G.s.board[info.cell] ? info : null));
-      G.preview = previewFor(info);
-      renderForecast(); renderDetail(); markLinks();
-      highlightLinks(!G.sel && info && info.cell != null && G.s.board[info.cell] ? info.cell : null);
-      drawPreLinks(info && info.cell != null ? info.cell : null);
-    }
-  });
-  document.addEventListener('pointerup', e => {
+  document.addEventListener('pointermove', ev => {
     if (!drag) return;
-    const d = drag; drag = null; $('#drag-ghost').hidden = true;
-    const under = document.elementFromPoint(e.clientX, e.clientY); const info = under ? targetInfo(under) : null;
-    if (!d.moved) { clickOn(d.info); return; }
-    if (!info) { G.sel = null; renderAll(); return; }
-    if (info.keep && typeof G.sel.src === 'number') doKeep(G.sel.src);
-    else if (info.cell != null && G.sel.src != null) { if (!doPlace(G.sel.src, info.cell)) { G.sel = null; renderAll(); } }
-    else if (info.cell != null && G.sel.cell != null && G.sel.cell !== info.cell) { if (!doSwap(G.sel.cell, info.cell)) { G.sel = null; renderAll(); } }
+    if (!drag.on) {
+      if (Math.abs(ev.clientX - drag.x) + Math.abs(ev.clientY - drag.y) < 8) return;
+      drag.on = true; G.sel = drag.id; renderAll();
+      const g = $('#drag-ghost'); g.innerHTML = ''; g.appendChild(pieceEl(G.s.cards[drag.id], { lv: lvOf(G.s.cards[drag.id].type) })); g.hidden = false;
+      const src = document.querySelector(`#board .pc[data-id="${drag.id}"], #hand .pc[data-id="${drag.id}"]`); if (src) src.classList.add('dragging');
+    }
+    const g = $('#drag-ghost'); g.style.left = ev.clientX + 'px'; g.style.top = ev.clientY + 'px';
+    const t = document.elementFromPoint(ev.clientX, ev.clientY), c = t && t.closest ? t.closest('#board .cell') : null;
+    setHoverCell(c ? +c.dataset.cell : -1);
+  });
+  function setHoverCell(i) {
+    if (i === G.hoverCell) return;
+    document.querySelectorAll('#board .cell.hov').forEach(x => x.classList.remove('hov'));
+    G.hoverCell = i; if (i >= 0 && G.sel != null) cellEl(i).classList.add('hov');
+    previewAt(i);
+  }
+  document.addEventListener('pointerup', ev => {
+    if (!drag) return;
+    const dg = drag; drag = null; $('#drag-ghost').hidden = true;
+    if (!dg.on) return; // 動かしていなければ、クリックとして下で処理する
+    dg.suppress = true; lastDragEnd = Date.now();
+    const t = document.elementFromPoint(ev.clientX, ev.clientY);
+    const c = t && t.closest ? t.closest('#board .cell') : null, h = t && t.closest ? t.closest('#hand-wrap') : null;
+    if (c) { if (!uiPut(dg.id, +c.dataset.cell)) { G.sel = null; renderAll(); } }
+    else if (h && R.cellOf(G.s, dg.id) >= 0) uiTake(dg.id);
     else { G.sel = null; renderAll(); }
   });
-  $('#btn-end').addEventListener('click', doEnd);
-  $('#btn-undo').addEventListener('click', doUndo);
+  document.addEventListener('pointercancel', () => { if (drag) { drag = null; $('#drag-ghost').hidden = true; G.sel = null; if (G.s && !G.busy) renderAll(); } });
+  let lastDragEnd = 0;
+  $('#board').addEventListener('click', ev => {
+    if (G.busy || Date.now() - lastDragEnd < 250) return;
+    const p = ev.target.closest('.pc'); if (p) { clickPiece(+p.dataset.id); return; }
+    const c = ev.target.closest('.cell'); if (c && G.sel != null) uiPut(G.sel, +c.dataset.cell);
+  });
+  $('#hand-wrap').addEventListener('click', ev => {
+    if (G.busy || Date.now() - lastDragEnd < 250) return;
+    const p = ev.target.closest('.pc'); if (p) { clickPiece(+p.dataset.id); return; }
+    if (G.sel != null && R.cellOf(G.s, G.sel) >= 0) uiTake(G.sel); // 盤面のブロックをえらんで手札の所を押す：もどす
+  });
+  // のせたら説明、マスにのせたら予想の変化
+  document.addEventListener('pointerover', ev => {
+    if (!G.s || drag) return;
+    const p = ev.target.closest && ev.target.closest('#board .pc, #hand .pc');
+    const id = p ? +p.dataset.id : null;
+    if (id !== G.hoverId) { G.hoverId = id; renderDetail(); }
+    const c = ev.target.closest && ev.target.closest('#board .cell');
+    if (!G.busy) setHoverCell(c ? +c.dataset.cell : -1);
+  });
+  $('#btn-end').addEventListener('click', () => doEnd());
+  $('#btn-clear').addEventListener('click', uiClear);
+  $('#btn-rot').addEventListener('click', uiRotate);
+  $('#btn-quit').addEventListener('click', showTitle);
+  $('#btn-start').addEventListener('click', startRun);
+  $('#btn-reroll').addEventListener('click', () => { G.seed = (G.seed * 7 + 13) % 90000 + 1; renderTitle(); });
   $('#btn-help').addEventListener('click', showHelp);
-  $('#detail').addEventListener('click', e => { if (e.target.id === 'btn-skills') { G.showSkills = !G.showSkills; renderDetail(); } });
-  $('#btn-quit').addEventListener('click', () => { if (!G.busy) showTitle(); });
+  $('#btn-deck').addEventListener('click', showDeck);
   $('#speed').addEventListener('change', e => { G.speed = +e.target.value; });
   $('#vol').addEventListener('input', e => { vol = +e.target.value / 100; });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#help').hidden = true; if (G.s && !G.busy) { G.sel = null; renderAll(); } } });
-  window.addEventListener('resize', () => { if (G.s) { renderBoard(); markLinks(); } }); // 盤面を作り直すので、「つながる」表示も付け直す
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { $('#help').hidden = true; if (G.s && !G.busy && $('#sheet').dataset.kind === 'deck') $('#sheet').hidden = true; if (G.s && !G.busy) { G.sel = null; renderAll(); } }
+    if ((e.key === 'r' || e.key === 'R') && ROT) uiRotate();
+  });
+  window.addEventListener('resize', () => { if (G.s && !$('#battle').hidden) renderAll(); });
   if (Q.has('speed')) { const o = [...$('#speed').options].find(x => +x.value === G.speed); if (o) $('#speed').value = o.value; }
+
+  // ------------------------------------------------------------ 発動（出来事ログを順に再生する）
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function fxCell(c) { const p = cellEl(c) && cellEl(c).querySelector('.pc'); if (p) { p.classList.remove('fx-fire'); void p.offsetWidth; p.classList.add('fx-fire'); } }
+  function slot(sel, text, sum, cls) {
+    $(sel).innerHTML = `<span class="last fx-pop${cls ? ' ' + cls : ''}">${text}</span>` + (sum ? `<span class="sum">${sum}</span>` : '');
+  }
+  const nameAt = c => R.B[G.pre.cards[G.pre.board[c]].type].name;
+  function show(e) {
+    G.view = { eh: e.eh, ph: e.ph, sh: e.sh, es: e.es, pc: e.pc, ch: e.ch };
+    renderEnemy(); renderPlayer();
+    switch (e.t) {
+      case 'shield': e.cells.forEach(fxCell); log('lp', `盾：シールド+${e.add}`); sfx('place'); return 240;
+      case 'fire': fxCell(e.cell); if (e.mode === 'counter') log('lp', `反撃：${nameAt(e.cell)}`); return 110;
+      case 'solo': fxCell(e.cell); return 110;
+      case 'hit': {
+        const nm = e.kind === 'chase' ? '追撃' : nameAt(e.cell);
+        if (e.dodged) { slot('#enemy-dmg', 'よけられた', `このターン 合計 ${G.turnSum.e}`); log('lp', `${nm}：よけられた`); sfx('bad'); return 200; }
+        G.turnSum.e += e.dmg;
+        slot('#enemy-dmg', `−${e.dmg}`, `このターン 合計 ${G.turnSum.e}`);
+        const ex = []; if (e.charge) ex.push(`たまり+${e.charge}`); if (e.fire) ex.push(`炎+${e.fire}`); if (e.armorCut) ex.push(`装甲−${e.armorCut}`); if (e.guardCut) ex.push(`結界−${e.guardCut}`); if (e.heal) ex.push(`HP+${e.heal}`);
+        log('lp', `${nm}：${e.dmg}ダメージ` + (ex.length ? `（${ex.join('、')}）` : ''));
+        const pt2 = $('#enemy-portrait'); pt2.classList.remove('fx-hit'); void pt2.offsetWidth; pt2.classList.add('fx-hit');
+        sfx('hit', e.dmg); return 230;
+      }
+      case 'gift': {
+        fxCell(e.cell);
+        const nm = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', regen: 'HP', charge: 'たまり' }[e.kind];
+        if (e.kind === 'regen') { if (e.n > 0) slot('#player-dmg', `+${e.n}`, '回復', 'heal'); else return 60; } // HPが満タンのときは、きろくに書かない
+        log('lp', `${R.B[e.kind].name}：${nm}+${e.n}`); return 130;
+      }
+      case 'consume': fxCell(e.cell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, `毒${e.n}を消費`); log('lp', `毒消費：毒${e.n}を消して ${e.dmg}ダメージ`); sfx('big'); return 300;
+      case 'shock': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '感電！ 次は1個多く引く'); log('lp', `感電：${e.dmg}ダメージ。次のターン 1個多く引く`); sfx('big'); return 320;
+      case 'freeze': slot('#enemy-dmg', '凍結！', '敵の攻撃が半分'); log('lp', '凍結：このターンの敵の攻撃が半分'); sfx('big'); return 300;
+      case 'thorn': if (e.dmg > 0) { G.turnSum.p += e.dmg; slot('#player-dmg', `−${e.dmg}`, 'トゲ'); } return 60;
+      case 'eact': $('#intent-box').classList.add('fx-act'); log('le', `敵：${e.label}`); return 320;
+      case 'ehit': {
+        if (e.dodged) { e.cells.forEach(fxCell); slot('#player-dmg', 'よけた', ''); log('le', `　攻撃${e.raw} → よけた`); return 240; }
+        G.turnSum.p += e.dmg;
+        const cut = []; if (e.ice) cut.push(`凍結−${e.ice}`); if (e.tough) cut.push(`堅牢−${e.tough}`); if (e.shield) cut.push(`シールド−${e.shield}`);
+        slot('#player-dmg', `−${e.dmg}`, cut.length ? `防いだ ${e.ice + e.tough + e.shield}` : ''); // くわしい内訳は「きろく」に出す（ここに全部書くと、せまい列で切れた）
+        log('le', `　攻撃${e.raw} → ${e.dmg}ダメージ` + (cut.length ? `（${cut.join('、')}）` : '')); sfx('ehit'); return 250;
+      }
+      case 'reflect': e.cells.forEach(fxCell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '反射'); log('lp', `反射：${e.dmg}ダメージ`); return 240;
+      case 'pheal': slot('#player-dmg', `+${e.n}`, '吸収', 'heal'); log('lp', `吸収：HP+${e.n}`); return 160;
+      case 'guard': log('le', `　結界 ${e.n}`); return 200;
+      case 'seal': log('le', `　封印：次のターン、手札の${e.n}個が はまらない`); return 260;
+      case 'destroy':
+        for (const c of e.cells) { const p = cellEl(c) && cellEl(c).querySelector('.pc'); if (p) p.classList.add('fx-break'); }
+        log('le', e.cells.length ? `　破壊：${e.cells.map(nameAt).join('、')} が この戦いから消えた` : '　破壊：はまっているブロックがなく、何も こわれなかった'); sfx('bad'); return 520;
+      case 'rubble': log('le', `　がれき：次のターン、${e.cells.length}マスに置けない`); return 260;
+      case 'cleanse': log('le', '　脱皮：毒・炎・氷・雷が消えた'); return 260;
+      case 'cursed': log('le', `　呪い+${e.n}`); return 200;
+      case 'tick': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '毒'); log('lp', `毒：${e.dmg}ダメージ`); return 240;
+      case 'curse': G.turnSum.p += e.dmg; slot('#player-dmg', `−${e.dmg}`, '呪い'); log('le', `呪い：${e.dmg}ダメージ`); return 240;
+      case 'eregen': log('le', `敵の再生：HP+${e.n}`); return 160;
+      case 'won': sfx('win'); return 500;
+      case 'lost': sfx('lose'); return 500;
+      default: return 0;
+    }
+  }
+  async function doEnd() {
+    if (G.busy || !G.s || G.s.phase !== 'place') return;
+    const s = G.s, f = R.forecast(s), turn = s.turn, e0 = s.stats.total, p0 = s.stats.taken;
+    G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {};
+    const ev = R.endTurn(s);
+    G.busy = true; G.turnSum = { e: 0, p: 0 }; G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen], pc: G.pre.p.curse, ch: G.pre.p.charge };
+    renderAll();
+    for (const e of ev) { const ms = show(e); if (G.speed > 0 && ms) await sleep(ms / G.speed); }
+    $('#intent-box').classList.remove('fx-act');
+    // 検査：予想と結果、演出の合計と計算
+    CHECK.turns++;
+    if (f.dealt !== s.stats.total - e0 || f.taken !== s.stats.taken - p0) miss(`予想と結果がちがう T${turn}: 予想 ${f.dealt}/${f.taken} 結果 ${s.stats.total - e0}/${s.stats.taken - p0}`);
+    if (G.turnSum.e !== s.stats.total - e0) miss(`演出の合計（与える）がちがう T${turn}: ${G.turnSum.e} / ${s.stats.total - e0}`);
+    if (G.turnSum.p !== s.stats.taken - p0) miss(`演出の合計（受ける）がちがう T${turn}: ${G.turnSum.p} / ${s.stats.taken - p0}`);
+    G.busy = false; G.view = null; G.pre = null; G.preD = null; G.gone = {};
+    if (s.phase === 'place') { log('lt', `ターン ${s.turn}`); renderAll(); checkNumbers(); if (s.sealed.length) log('le', `封印：手札の${s.sealed.length}個が はまらない`); }
+    else { renderTop(); renderEnemy(); renderPlayer(); $('#guide').textContent = ''; $('#forecast').innerHTML = ''; checkNumbers(); fightEnd(); }
+  }
+  function checkNumbers() { // 画面の数字が、計算と同じか
+    const s = G.s;
+    if ($('#enemy-hp').textContent !== `${Math.max(0, s.e.hp)} / ${s.e.max}`) miss(`敵HPの表示 ${$('#enemy-hp').textContent} / 計算 ${s.e.hp}`);
+    if ($('#player-hp').textContent !== `${Math.max(0, s.p.hp)} / ${s.p.max}`) miss(`自分HPの表示 ${$('#player-hp').textContent} / 計算 ${s.p.hp}`);
+  }
+
+  // ------------------------------------------------------------ 戦いの終わり：ごほうび・はずす・結果
+  function openSheet(kind, html) { const o = $('#sheet'); o.dataset.kind = kind; $('#sheet-body').innerHTML = html; o.hidden = false; CHECK.screens[kind] = (CHECK.screens[kind] || 0) + 1; return $('#sheet-body'); }
+  function deckMinis(deck, lv, pick) {
+    const box = el('div', 'minis');
+    deck.map((c, i) => ({ c, i })).sort((a, b) => R.TYPES.indexOf(a.c.type) - R.TYPES.indexOf(b.c.type)).forEach(x => {
+      const m = miniEl(x.c, R.lvOf(lv, x.c.type), pick ? 'pick' : ''); m.title = R.B[x.c.type].name; if (pick) m.addEventListener('click', () => pick(x.i));
+      m.dataset.idx = x.i; box.appendChild(m);
+    });
+    return box;
+  }
+  function fightEnd() {
+    const s = G.s;
+    if (G.mode === 'one') { showResult(s.phase === 'won'); return; }
+    R.finishFight(G.run);
+    if (G.run.phase === 'reward') showReward(); else showResult(G.run.phase === 'won');
+  }
+  function showReward() {
+    const run = G.run, next = R.ENEMIES[run.order[run.stage + 1]], rw = run.reward;
+    const body = openSheet('reward', `<h2 class="res-win">勝った！　ごほうび（${rw.round}／${R.PICKS}）</h2>
+      <p>HP +${run.healed} 回復（いま ${run.hp} / ${run.max}）。　次の敵：<b>${next.name}</b> — ${next.trait}</p>
+      <h3>3つから 1つ えらぶ</h3><div class="opts" id="opts"></div>
+      <div class="row"><button class="btn" id="rw-skip">えらばない</button></div>
+      <h3>いまのデッキ（${run.deck.length}個）</h3>`);
+    rw.options.forEach((o, i) => {
+      const def = R.B[o.type], cur = R.lvOf(run.lv, o.type);
+      const c = el('button', 'opt'); c.dataset.opt = i;
+      const top = el('div', 'otop'), op = el('div', 'op'); op.appendChild(pieceEl({ type: o.type, rot: o.up ? 0 : o.rot }, { lv: o.up ? o.lv : cur, name: false }));
+      top.appendChild(op);
+      const fit = o.up ? null : R.fitCount(run.deck, o);
+      top.appendChild(el('div', '', `<div class="ok">${o.up ? `レベルアップ Lv${cur} → Lv${o.lv}` : '新しいブロック'}</div><div class="on">${def.name} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></div>`));
+      c.appendChild(top);
+      c.appendChild(el('div', 'ot', R.blockText(o.type, o.up ? o.lv : cur)));
+      if (def.kw) c.appendChild(el('div', 'os', `${R.KW[def.kw].name}：${R.KW[def.kw].text}`));
+      c.appendChild(el('div', 'os', o.up ? `デッキの${def.name}（${run.deck.filter(k => k.type === o.type).length}個）が ぜんぶ強くなる。前：${R.blockText(o.type, cur)}`
+        : def.fam === 'atk' || def.fam === 'def' ? `この凹に はまる凸：デッキに ${fit.take}個` : `この凸が はまる凹：デッキに ${fit.give}か所`));
+      c.addEventListener('click', () => pickReward(i));
+      body.querySelector('#opts').appendChild(c);
+    });
+    body.querySelector('#rw-skip').addEventListener('click', () => pickReward(-1));
+    body.appendChild(deckMinis(run.deck, run.lv));
+  }
+  function pickReward(i) {
+    R.pickReward(G.run, i); sfx('link');
+    if (G.run.phase === 'reward') showReward(); else showRemove();
+  }
+  function showRemove() {
+    const run = G.run;
+    const body = openSheet('remove', `<h2>デッキから 1個 はずせる</h2><p>いらないブロックを押すと、デッキから なくなる（はずさなくてもよい）。少ないほど、ほしいブロックを引きやすい。</p>
+      <div class="row"><button class="btn primary" id="rm-skip">はずさないで 次の戦いへ ▶</button></div><h3>いまのデッキ（${run.deck.length}個）</h3>`);
+    body.appendChild(deckMinis(run.deck, run.lv, i => removeCard(i)));
+    body.querySelector('#rm-skip').addEventListener('click', () => removeCard(-1));
+  }
+  function removeCard(i) { R.removeCard(G.run, i); G.s = G.run.fight; enterBattle(); }
+  function showResult(won) {
+    const s = G.s, run = G.run, e = R.ENEMIES[s.enemyId];
+    const st = s.stats, keys = Object.keys(st.dealt).sort((a, b) => st.dealt[b] - st.dealt[a]), max = Math.max(1, ...keys.map(k => st.dealt[k]));
+    let h = won ? `<h2 class="res-win">${run ? '5連戦 クリア！' : '勝ち！'}</h2>` : `<h2 class="res-lose">負け…</h2>`;
+    h += `<p>${run ? `${s.stage + 1}戦目 ` : ''}${e.name}（${s.turn}ターン）。敵のHP ${Math.max(0, s.e.hp)} / ${s.e.max}、あなたのHP ${Math.max(0, s.p.hp)} / ${s.p.max}。</p>`;
+    if (!won) h += `<p>さいごの敵の行動：<b>${G.lastIntent || ''}</b>。この戦いで 受けたダメージ ${st.taken}、防いだダメージ ${st.blocked}。</p>`;
+    h += `<h3>この戦いで 与えたダメージ（合計 ${st.total}）</h3><div class="brk">` + keys.map(k => `<span>${SRC_NAMES[k] || (R.B[k] ? R.B[k].name : k)}</span><span class="bb" style="width:${st.dealt[k] / max * 100}%"></span><span>${st.dealt[k]}</span>`).join('') + '</div>';
+    h += `<div class="row"><button class="btn primary ready" id="rs-again">${run ? 'もう一度（相手の順を かえて）' : 'もう一度'}</button><button class="btn" id="rs-same">${run ? '同じ相手の順で もう一度' : '5連戦を はじめる'}</button><button class="btn" id="rs-title">タイトルへ</button></div>`;
+    if (run) h += `<h3>さいごのデッキ（${run.deck.length}個）</h3>`;
+    const body = openSheet(won ? 'win' : 'lose', h);
+    if (run) body.appendChild(deckMinis(run.deck, run.lv));
+    CHECK.result = { phase: won ? 'won' : 'lost', stage: s.stage, turn: s.turn, mode: G.mode };
+    const enemyId = s.enemyId, stage = s.stage;
+    body.querySelector('#rs-again').addEventListener('click', () => { G.seed = (G.seed * 7 + 13) % 90000 + 1; if (run) startRun(); else startOne(enemyId, stage); });
+    body.querySelector('#rs-same').addEventListener('click', () => startRun());
+    body.querySelector('#rs-title').addEventListener('click', showTitle);
+  }
+
+  // ------------------------------------------------------------ あそびかた・ブロック一覧／山札を見る
+  function showHelp() {
+    const lv = G.s ? G.s.lv : (G.run ? G.run.lv : {});
+    let h = `<h2>あそびかた</h2>
+      <p>1. 毎ターン、山札から <b>${R.HAND}個</b> 引く。敵の予告を見て、盤面に置く（置き方は、発動するまで何回でも変えられる）。</p>
+      <p>2. <b>凸</b>が、となりのブロックの<b>凹</b>に向かい合うと「はまる」。能力は 凸 → 凹 に わたる。わたした側は、自分では働かない。わたさない能力ブロックは、自分で1回 働く（半分の力）。</p>
+      <p>3. 受け取ったものは、次のブロックへは わたらない。</p>
+      <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。</p>
+      <p>5. ターンの終わりに、手札は全部 捨て札へ。山札がなくなったら、捨て札を切り直す。</p>
+      <h3>4つの系統（色と形で分かる）</h3>` +
+      ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('') +
+      `<h3>ことば</h3>` + Object.keys(R.KW).map(k => `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`).join('') +
+      `<p class="kw"><b>封印</b>：そのブロックは、凸も凹も はまらない（自分では働く）。　<b>がれき</b>：そのマスに置けない。　<b>破壊</b>：いちばん多く はまっているブロックが、この戦いから消える（盤面に「破壊」の印が出る）。</p>
+      <h3>ブロック一覧</h3><div class="cat" id="cat"></div><div class="row"><button class="btn primary" id="help-close">とじる</button></div>`;
+    $('#help-sheet').innerHTML = h;
+    const cat = $('#cat');
+    for (const t of R.TYPES) {
+      const d = R.B[t], l = R.lvOf(lv, t), ci = el('div', 'ci');
+      ci.appendChild(miniEl({ type: t, rot: 0 }, l)); ci.appendChild(el('div', '', `<b>${d.name}</b>${l > 1 ? ` Lv${l}` : ''}　${R.blockText(t, l)}`)); cat.appendChild(ci);
+    }
+    $('#help-close').addEventListener('click', () => { $('#help').hidden = true; });
+    $('#help').hidden = false; CHECK.screens.help = 1;
+  }
+  function showDeck() {
+    if (!G.s || G.busy) return;
+    const s = G.s, cards = ids => ids.map(id => s.cards[id]);
+    const body = openSheet('deck', `<h2>山札と捨て札</h2><p>引く順は見えない（種類の順に ならべてある）。</p><h3>山札（${s.deck.length}個）</h3><div id="dk1"></div><h3>捨て札（${s.discard.length}個）</h3><div id="dk2"></div>` +
+      (s.gone.length ? `<h3>破壊された（この戦いの間 なくなる。${s.gone.length}個）</h3><div id="dk3"></div>` : '') + '<div class="row"><button class="btn primary" id="dk-close">とじる</button></div>');
+    body.querySelector('#dk1').appendChild(deckMinis(cards(s.deck), s.lv));
+    body.querySelector('#dk2').appendChild(deckMinis(cards(s.discard), s.lv));
+    if (s.gone.length) body.querySelector('#dk3').appendChild(deckMinis(cards(s.gone), s.lv));
+    body.querySelector('#dk-close').addEventListener('click', () => { $('#sheet').hidden = true; });
+  }
 
   // ------------------------------------------------------------ 文字の重なり・はみ出しの検査（確認用）
   window.__layoutCheck = function () {
-    const out = { overlaps: 0, offscreen: 0, clipped: 0, pageScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), samples: [], textItems: 0, textChars: 0, textBy: {} }; // textItems / textChars … 画面に見えている文字のかたまりの数と、文字数（情報量のめやす）
+    const out = { overlaps: 0, offscreen: 0, clipped: 0, pageScroll: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), samples: [], textItems: 0, textChars: 0, textBy: {} };
     const items = [];
     const top = document.querySelector('.overlay:not([hidden])') || document.body;
     const w = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       if (!n.nodeValue.trim()) continue;
-      const p = n.parentElement; if (!p || p.closest('script,style,option,select')) continue;
+      const p = n.parentElement; if (!p || p.closest('script,style,option,select,#drag-ghost')) continue;
       let vis = true, clip = null;
       for (let a = p; a && a !== document.body; a = a.parentElement) {
         const cs = getComputedStyle(a);
@@ -665,6 +599,11 @@
     }
     return out;
   };
+  function sampleLayout() {
+    const r = window.__layoutCheck(), L = CHECK.layout; L.samples++;
+    L.overlaps += r.overlaps; L.offscreen += r.offscreen; L.clipped += r.clipped; L.pageScroll = Math.max(L.pageScroll, r.pageScroll);
+    for (const s of r.samples) if (L.notes.length < 12 && L.notes.indexOf(s) < 0) L.notes.push(s);
+  }
 
   // ------------------------------------------------------------ 自動プレイ（?auto=1）：ボットが画面の操作と同じ関数を通して遊ぶ
   function writeCheck() { // 検査の結果をページに書き出す（check.js が読む）
@@ -673,154 +612,79 @@
     p.textContent = JSON.stringify(Object.assign({ w: window.innerWidth, h: window.innerHeight, turn: G.s ? G.s.turn : 0, screen: { items: lc.textItems, chars: lc.textChars, by: lc.textBy } }, CHECK));
   }
   let autoSeed = 12345; const autoRand = () => { autoSeed = (autoSeed * 1103515245 + 12345) & 0x7fffffff; return autoSeed / 0x7fffffff; };
-  // 盤面の線（色つき＝効いている、うすい点線＝つながっているだけ）と、点線の札が、計算と同じか
+  // 盤面の絵（はまっている凸・効く効かない・番号・札の字・働いていない印）が、計算と同じか
   function checkBoardDisplay() {
-      const d = R.derive(G.s.board, G.s.e), key = p => Math.min(p[0], p[1]) + '-' + Math.max(p[0], p[1]);
-      const dom = sel => [...document.querySelectorAll(sel)].map(l => { const p = (l.dataset.link || l.dataset.deadlink).split('-').map(Number); return key(p); }).sort().join(' ');
-      const liveWant = d.liveLinks.map(key).sort().join(' '), deadWant = d.links.filter(p => d.LL[p[0]].indexOf(p[1]) < 0).map(key).sort().join(' ');
-      if (dom('#links [data-link]') !== liveWant) CHECK.mismatches.push(`効いている線 [${dom('#links [data-link]')}] / 計算 [${liveWant}]`);
-      if (dom('#links [data-deadlink]') !== deadWant) CHECK.mismatches.push(`効いていない線 [${dom('#links [data-deadlink]')}] / 計算 [${deadWant}]`);
-      for (let i = 0; i < R.N; i++) { const t = cellEl(i).querySelector('.tile'); if (t && R.isActive(G.s.board[i]) && t.classList.contains('idle') !== !d.live[i]) CHECK.mismatches.push(`点線の札がちがう（マス${i}）`); }
-      CHECK.lineChecks = (CHECK.lineChecks || 0) + 1; CHECK.deadSeen = (CHECK.deadSeen || 0) + (deadWant ? 1 : 0);
-  }
-  // 棚の札の点線が、計算（1マスずつ置いてみて、働く所があるか）と同じか
-  function checkShopDisplay() {
-    for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) {
-      const type = G.s.shop[i]; let any = false;
-      for (let c = 0; c < R.N && !any; c++) {
-        const b = G.s.board[c]; if (b && b.type === type && b.lv >= R.MAXLV) continue;
-        const cp = G.s.board.slice(); if (!(b && b.type === type)) cp[c] = R.mk(type);
-        any = R.derive(cp, G.s.e).live[c];
-      }
-      const dashed = !!$('#shop').children[i].querySelector('.tile.lk-none');
-      if (dashed !== !any) CHECK.mismatches.push(`棚の点線 ${dashed} / 計算 ${!any}（${type}）`);
-      CHECK.shopChecks = (CHECK.shopChecks || 0) + 1;
+    const s = G.s, d = R.derive(s);
+    const want = d.links.map(l => `${l.from}-${l.to}:${l.ok ? 1 : 0}`).sort().join(' ');
+    const got = [...document.querySelectorAll('#board .pc-tab[data-link]')].map(t => `${t.dataset.link}:${t.dataset.ok}`).sort().join(' ');
+    if (want !== got) miss(`はまっている凸 画面[${got}] 計算[${want}]`);
+    for (const c of d.cells) {
+      const p = cellEl(c).querySelector('.pc'), sum = R.summary(d, c);
+      if (!p) { miss(`札が出ていない（マス${c}）`); continue; }
+      const ord = p.querySelector('.ord'), m = p.querySelector('.m');
+      if ((ord ? +ord.textContent : 0) !== d.blk[c].ord) miss(`番号がちがう（マス${c}）`);
+      if ((m ? m.textContent : '') !== sum.main) miss(`札の字がちがう（マス${c}）${m ? m.textContent : ''} / ${sum.main}`);
+      if (p.classList.contains('idle') !== sum.idle) miss(`働いていない印がちがう（マス${c}）`);
     }
+    const f = R.forecast(s);
+    if (+$('#fc-deal').textContent !== f.dealt || +$('#fc-take').textContent !== f.taken) miss('予想の数字が計算とちがう');
+    CHECK.linkChecks++;
   }
-  // ?auto=1&scene=kept … 決まった盤面を直接つくって、表示を計算と、書いておいた答えの両方とくらべる。
-  // 通常の入力ではない（確かめ用の近道）。自動プレイでは めったに出ない形を、必ず1回は見るため。
-  function runScene(name) {
-    const s = G.s; R.place(s, 0, R.START_CELL); // 「置く」段階に入る
-    for (let i = 0; i < R.N; i++) s.board[i] = null;
-    const put = (c, t, sealed) => { const b = R.mk(t); if (sealed) b.sealed = sealed; s.board[c] = b; };
-    let want = null;
-    if (name === 'kept') { // 攻撃なし。敵に毒10。毒＋持続強化は効いている。増幅は効いていない。蓄積は ひとりで働く。封印された持続強化は効かない
-      s.e.poison = 10; s.e.fire = 0;
-      put(11, 'amp'); put(12, 'poison'); put(13, 'sustain'); put(24, 'charge'); put(0, 'fire'); put(1, 'sustain', 2);
-      s.shop = ['charge', 'poison', 'sustain', 'amp', 'slash', 'leech', 'mirror', 'spread'];
-      want = { live: '12-13', dead: '11-12', idle: '0,11', dashedShop: 'amp,leech,mirror,spread' };
-    }
-    if (!want) { CHECK.errors.push('scene: 知らない場面 ' + name); writeCheck(); return; }
-    G.sel = null; renderAll();
-    checkBoardDisplay(); checkShopDisplay();
-    const q = sel => [...document.querySelectorAll(sel)];
-    const got = {
-      live: q('#links [data-link]').map(l => l.dataset.link).sort().join(' '),
-      dead: q('#links [data-deadlink]').map(l => l.dataset.deadlink).sort().join(' '),
-      idle: q('#board .tile.idle').map(t => +t.parentElement.dataset.cell).filter(c => R.isActive(s.board[c])).sort((x, y) => x - y).join(','),
-      dashedShop: q('#shop .tile.lk-none').map(t => t.dataset.type).sort().join(','),
-    };
-    for (const k in want) if (got[k] !== want[k]) CHECK.mismatches.push(`場面 ${name}：${k} が [${got[k]}]、答えは [${want[k]}]`);
-    sampleLayout(); CHECK.scene = { name, got }; CHECK.stopped = true; writeCheck();
+  // 「はまるマスの数字」を1つ えらんで、本当に置いて、その数だけ はまるかを見る
+  function checkSpot(id, cell) {
+    uiSelect(id);
+    const c = cellEl(cell), shown = c && c.classList.contains('lk-good') ? +c.dataset.spot : 0;
+    uiPut(id, cell);
+    const d = R.derive(G.s), real = d.links.filter(l => l.ok && (l.from === cell || l.to === cell)).length;
+    if (shown !== real) miss(`はまる数の表示 ${shown} / 置いたあと ${real}（マス${cell}）`);
+    CHECK.spotChecks++;
   }
-
-  function autoStep() {
-    if (!G.s) return;
-    if (G.s.phase === 'won' || G.s.phase === 'lost') { writeCheck(); return; }
-    if (G.busy) { setTimeout(autoStep, 30); return; }
-    if (STOP && G.s.phase === 'place' && G.s.turn >= STOP) {
-      if (Q.get('pick') === '1') { // 「つながる」表示の写真用：線の数がいちばん多い棚の札を選ぶ
-        let best = -1, bn = 0;
-        for (let i = 0; i < R.SHOP; i++) if (G.s.shop[i]) { // 空きマスに数字が出る札を先にえらぶ（写真で分かりやすいほう）
-          const sp = R.linkSpots(G.s.board, G.s.shop[i], G.s.e), n = R.bestLinks(G.s.board, G.s.shop[i], G.s.e) + (sp.some(x => !G.s.board[x.cell]) ? 100 : 0);
-          if (n > bn) { bn = n; best = i; }
+  async function autoPlay() {
+    const style = Q.get('bot') || 'smart', enemy = Q.get('enemy');
+    await sleep(0);
+    sampleLayout(); // タイトル
+    if (SCREEN === 'title') { CHECK.stopped = true; writeCheck(); return; }
+    if (enemy) startOne(enemy, +Q.get('stage') || 0); else startRun();
+    let guard = 0;
+    while (guard++ < 400) {
+      const s = G.s;
+      if (s.phase === 'place') {
+        G.lastIntent = s.intent.label;
+        const L = Bot.search(s, { style });
+        R.clearBoard(s); renderAll();
+        for (let cell = 0; cell < R.N; cell++) {
+          const id = L.board[cell]; if (id == null) continue;
+          if (ROT && L.rots[id] != null) { let g = 0; while (s.cards[id].rot !== L.rots[id] && g++ < 4) R.rotate(s, id); }
+          checkSpot(id, cell);
         }
-        // 先に、盤面の札を選んだとき（入れかえ）の表示を確かめる
-        const sortedN = a => a.slice().sort((x, y) => x - y);
-        const from = G.s.board.findIndex((b, i) => b && R.swapSpots(G.s.board, i, G.s.e).length > 0);
-        if (from >= 0) {
-          G.sel = { cell: from }; renderAll();
-          const sp = R.swapSpots(G.s.board, from, G.s.e), bad = [];
-          for (const x of sp) { const m = cellEl(x.cell).querySelector('.lk-spot b, .lk-pin'); if (!m || +m.textContent !== x.n) bad.push(x.cell); }
-          const shownCells = [...document.querySelectorAll('#board .lk-spot, #board .lk-pin')].length;
-          const glow = sortedN([...document.querySelectorAll('#board .tile.lk-mate')].map(t => +t.parentElement.dataset.cell));
-          if (bad.length || shownCells !== sp.length) CHECK.mismatches.push(`入れかえの数字のマスが計算とちがう（マス${from}）`);
-          if (String(glow) !== String(R.swapMates(G.s.board, from, G.s.e))) CHECK.mismatches.push(`入れかえの光る相手が計算とちがう（マス${from}）`);
-          CHECK.pickedSwap = { from, spots: sp.length, mates: glow.length };
-          sampleLayout();
+        checkBoardDisplay(); sampleLayout();
+        if (STOP && s.turn === STOP && CHECK.fights === 1) {
+          if (Q.get('pick') === '1') { // 盤面のブロックを1個 手札にもどして、えらんだ画面にする
+            const cells = R.derive(s).links.filter(l => l.ok).map(l => l.from); const id = cells.length ? s.board[cells[0]] : s.board.find(x => x != null);
+            uiTake(id); uiSelect(id); CHECK.picked = { spots: document.querySelectorAll('#board .cell.lk-good').length }; sampleLayout();
+          }
+          if (SCREEN === 'help') { showHelp(); sampleLayout(); }
+          if (SCREEN === 'deck') { showDeck(); sampleLayout(); }
+          CHECK.stopped = true; writeCheck(); return;
         }
-        if (best >= 0) { G.sel = { src: best }; renderAll(); } else { G.sel = null; renderAll(); }
-        CHECK.picked = best >= 0 ? { src: best, spots: document.querySelectorAll('#board .lk-spot, #board .lk-pin').length, mates: document.querySelectorAll('#board .tile.lk-mate').length } : null;
+        await doEnd();
+        sampleLayout();
       }
-      sampleLayout(); CHECK.stopped = true; writeCheck(); return;
+      const k = $('#sheet').hidden ? '' : $('#sheet').dataset.kind;
+      if (k === 'reward') {
+        sampleLayout();
+        if (SCREEN === 'reward') { CHECK.stopped = true; writeCheck(); return; }
+        pickReward((autoRand() * 3) | 0);
+      } else if (k === 'remove') {
+        sampleLayout();
+        if (SCREEN === 'remove') { CHECK.stopped = true; writeCheck(); return; }
+        removeCard(autoRand() < 0.5 ? -1 : (autoRand() * G.run.deck.length) | 0);
+      } else if (k === 'win' || k === 'lose') { sampleLayout(); break; }
     }
-    // ?bot=random … でたらめに置くボット（負けの画面を確かめる用）
-    const act = Bot.chooseAction(G.s, Q.get('bot') === 'random' ? { random: true, rand: autoRand, start: 'slash' } : { start: ['slash', 'shot', 'area'][G.seed % 3] });
-    let ok = true;
-    const sorted = a => a.slice().sort((x, y) => x - y);
-    checkBoardDisplay();
-    const shownAt = cell => { const m = cellEl(cell).querySelector('.lk-spot b, .lk-pin'); return m ? +m.textContent : 0; };
-    const shownAll = () => [...document.querySelectorAll('#board .lk-spot b, #board .lk-pin')].map(m => [+m.closest('.cell').dataset.cell, +m.textContent]).sort((x, y) => x[0] - y[0]).map(x => x[0] + ':' + x[1]).join(' ');
-    const glowing = () => sorted([...document.querySelectorAll('#board .tile.lk-mate')].map(t => +t.parentElement.dataset.cell));
-    const preLinks = cell => sorted([...document.querySelectorAll('#links-pre [data-prelink]')].map(l => +l.dataset.prelink.split('-')[1]));
-    if (act.type === 'place') {
-      const type = R.srcType(G.s, act.src), board = G.s.board;
-      const want = sorted(R.linksIfPlaced(board, type, act.cell, G.s.e)), spots = R.linkSpots(board, type, G.s.e);
-      const exp = (spots.find(x => x.cell === act.cell) || { n: 0 }).n; // このマスに出るはずの数字（数字を出さないマスなら0）
-      G.sel = { src: act.src }; renderAll(); // 人が棚の札を選んだときと同じ表示を出す
-      // 盤面に出ている数字のマス全部が、計算（置けるマスだけ）と同じ
-      const expAll = spots.filter(x => R.placeKind(G.s, act.src, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
-      if (shownAll() !== expAll) CHECK.mismatches.push(`数字のマス [${shownAll()}] / 計算 [${expAll}]（${type}）`);
-      if (shownAt(act.cell) !== exp) CHECK.mismatches.push(`つながる数の表示 ${shownAt(act.cell)} / 計算 ${exp}（マス${act.cell}）`);
-      // 光っている札は、ルールの答え（linkMates）と ぴったり同じ（足りないのも、余分なのも だめ）
-      if (String(glowing()) !== String(R.linkMates(board, type, G.s.e))) CHECK.mismatches.push(`光る相手 [${glowing()}] / 計算 [${R.linkMates(board, type, G.s.e)}]（${type}）`);
-      // マスにのせたときの点線は、置いた後のつながりと同じ
-      drawPreLinks(act.cell);
-      if (String(preLinks(act.cell)) !== String(want)) CHECK.mismatches.push(`点線 [${preLinks(act.cell)}] / 計算 [${want}]（マス${act.cell}）`);
-      checkShopDisplay();
-      CHECK.placeChecks = (CHECK.placeChecks || 0) + 1;
-      sampleLayout();
-      ok = doPlace(act.src, act.cell);
-      const got = ok ? sorted(G.derived.LL[act.cell]) : want;
-      if (String(got) !== String(want)) CHECK.mismatches.push(`置く前の予告と置いた後のつながりがちがう（マス${act.cell}）`);
-    } else if (act.type === 'swap') {
-      const want = sorted(R.linksIfSwapped(G.s.board, act.a, act.b, G.s.e));
-      const exp = (R.swapSpots(G.s.board, act.a, G.s.e).find(x => x.cell === act.b) || { n: 0 }).n;
-      G.sel = { cell: act.a }; renderAll(); // 人が盤面の札を選んだときと同じ表示を出す
-      const expSw = R.swapSpots(G.s.board, act.a, G.s.e).filter(x => R.canSwap(G.s, act.a, x.cell)).map(x => x.cell + ':' + x.n).join(' ');
-      if (shownAll() !== expSw) CHECK.mismatches.push(`入れかえの数字のマス [${shownAll()}] / 計算 [${expSw}]`);
-      if (shownAt(act.b) !== exp) CHECK.mismatches.push(`入れかえの つながる数の表示 ${shownAt(act.b)} / 計算 ${exp}（マス${act.b}）`);
-      if (String(glowing()) !== String(R.swapMates(G.s.board, act.a, G.s.e))) CHECK.mismatches.push(`入れかえの 光る相手 [${glowing()}] / 計算 [${R.swapMates(G.s.board, act.a, G.s.e)}]`);
-      drawPreLinks(act.b);
-      if (G.s.board[act.a] && String(preLinks(act.b)) !== String(want)) CHECK.mismatches.push(`入れかえの点線 [${preLinks(act.b)}] / 計算 [${want}]（マス${act.b}）`);
-      CHECK.swapChecks = (CHECK.swapChecks || 0) + 1;
-      sampleLayout();
-      ok = doSwap(act.a, act.b);
-      const got = ok && G.s.board[act.b] ? sorted(G.derived.LL[act.b]) : want;
-      if (String(got) !== String(want)) CHECK.mismatches.push(`入れかえる前の予告と、入れかえた後のつながりがちがう（マス${act.b}）`);
-    } else {
-      // 手数が0のとき：棚の札を選んでも、置けないマスに数字が出ないこと
-      const i = G.s.shop.findIndex(x => x);
-      if (G.s.phase === 'place' && G.s.moves === 0 && i >= 0) {
-        G.sel = { src: i }; renderAll();
-        const n = document.querySelectorAll('#board .lk-spot, #board .lk-pin').length;
-        if (n) CHECK.mismatches.push(`手数0なのに「つながる」数字が${n}マスに出ている`);
-        CHECK.zeroMoveChecks = (CHECK.zeroMoveChecks || 0) + 1;
-        G.sel = null; renderAll();
-      }
-      ok = doEnd();
-    }
-    if (!ok) doEnd();
-    setTimeout(autoStep, G.speed > 0 ? 250 : 0);
+    CHECK.done = true; writeCheck();
   }
 
-  window.__autoRun = (id, seed) => new Promise(res => {
-    CHECK.turns = 0; CHECK.mismatches = []; CHECK.errors = []; CHECK.done = false; CHECK.result = null; CHECK.layout = { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] };
-    startGame(id, seed); sampleLayout(); autoStep();
-    const t = setInterval(() => { if (CHECK.done) { clearInterval(t); res(JSON.parse(JSON.stringify(CHECK))); } }, 20);
-  });
-
-  renderTitle();
-  if (Q.has('enemy') && R.ENEMIES[Q.get('enemy')]) { startGame(Q.get('enemy')); if (AUTO && Q.has('scene')) runScene(Q.get('scene')); else if (AUTO) setTimeout(autoStep, 50); }
-  else { showTitle(); if (AUTO) { sampleLayout(); CHECK.stopped = true; writeCheck(); } }
+  showTitle();
+  if (Q.has('enemy') && !AUTO) startOne(Q.get('enemy'), +Q.get('stage') || 0);
+  if (AUTO) autoPlay().catch(e => { CHECK.errors.push('auto: ' + (e && e.stack || e)); writeCheck(); });
 })();

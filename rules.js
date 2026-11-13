@@ -1,365 +1,366 @@
 'use strict';
 /*
- * rules.js — ゲームのルール（計算だけ。画面は描かない）
+ * rules.js — ゲームのルール（計算だけ。画面は描かない）  ※ジグソー版（v2）。前の版は v1/ にある。
  * 画面(ui.js)・ボット(botcore.js)・テスト(tests.js) が同じこのファイルを使う。
  * resolve() は「何が起きたか」の出来事ログを返し、画面はそれを再生するだけ。
+ *
+ * きまり（凹凸）:
+ *   1. ブロックの辺には 凸・凹・平ら がある。となりのブロックの 凸 と 凹 が向かい合うと「はまる」。
+ *   2. 能力は 凸 → 凹 の一方向に わたる。わたした側（凸）は、自分では働かない。
+ *   3. 受け取ったものは、次のブロックへは わたらない（わたるのは、自分のもとの能力だけ）。
+ *   4. 受け取った「能力」は、攻撃ならヒットごとに、防御なら敵のヒット1回ごとに、能力ブロックなら自分が働くときに1回 働く。
+ *   5. どこにも わたしていない能力ブロックは、自分で1回 働く。ただし半分の力（切り上げ）。はめた方が強い。
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.Rules = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
-  const W = 5, H = 5, N = W * H, MAXLV = 3, SHOP = 8, MAXHP = 100;
-  const SHOCK_AT = 15, SHOCK_DMG = 10, FREEZE_AT = 20, COUNTER_MAX = 2, HIT_CAP = 300;
-  const START_CELL = 12;
+  const W = 5, H = 4, N = W * H, HAND = 7, MAXHP = 100;
+  const SHOCK_AT = 8, SHOCK_DMG = 10, FREEZE_AT = 8, COUNTER_MAX = 2, HIT_CAP = 200;
+  const STAGES = 5, PICKS = 2, HEAL_AFTER = 20;
+  // 何戦目かで敵が強くなる（HP と 攻撃の倍率）
+  const STAGE_HP = [1, 1.2, 1.45, 1.7, 2.0], STAGE_ATK = [1, 1.1, 1.2, 1.3, 1.4];
 
   // ---------------------------------------------------------------- ブロック
-  // v = レベルごとの「数字」。txt はその数字をそのまま使う（文字どおりに動く）。
+  // v = レベルごとの「数字」（Lv1/2/3。1つだけのものはレベルアップしない）。txt はその数字をそのまま使う（文字どおりに動く）。
+  // レベルは種類ごと（デッキの同じ種類は、ぜんぶ同じレベル）。
+  // sh = 辺の形 [上, 右, 下, 左]。 1 = 凸、-1 = 凹、0 = 平ら。札ごとの向き（rot）で回る。
+  // 系統: atk 攻撃（凹だけ）/ def 防御（凹だけ）/ abil 能力（凸1つ・凹1つ）/ enh 強化（凸だけ）
   const B = {
-    slash:   { fam: 'atk',  name: '斬撃',     g: '斬', v: [5, 8, 11], hits: 1,
+    slash:   { fam: 'atk',  name: '斬撃',     g: '斬', v: [6, 9, 12], hits: 1, sh: [-1, 0, 0, -1],
                txt: v => `${v}ダメージ ×1ヒット。` },
-    shot:    { fam: 'atk',  name: '射撃',     g: '射', v: [2, 3, 4], hits: 2,
+    shot:    { fam: 'atk',  name: '射撃',     g: '射', v: [2, 3, 4], hits: 2, sh: [0, -1, 0, -1],
                txt: v => `${v}ダメージ ×2ヒット。` },
-    area:    { fam: 'atk',  name: '範囲攻撃', g: '範', v: [3, 5, 7], hits: 1, diag: true,
-               txt: v => `${v}ダメージ ×1ヒット。ななめのブロックとも つながる（まわり8マス）。` },
-    poison:  { fam: 'elem', name: '毒',       g: '毒', v: [1, 2, 3],
-               txt: v => `ヒットごとに 毒+${v}。毒：ターンの終わりに 毒の数だけダメージ。そのあと半分にへる。` },
-    fire:    { fam: 'elem', name: '炎',       g: '炎', v: [1, 2, 3],
-               txt: v => `ヒットすると 敵が燃える（炎${v}。もっと大きい炎があれば そのまま）。炎：敵がヒットを受けるたび 炎の数だけ追加ダメージ。ターンの終わりに消える。` },
-    ice:     { fam: 'elem', name: '氷',       g: '氷', v: [1, 2, 3],
-               txt: v => `ヒットごとに 氷+${v}。氷が${FREEZE_AT}たまると凍結：敵の次の攻撃のダメージが半分になる（1ターンに1回）。` },
-    shock:   { fam: 'elem', name: '雷',       g: '雷', v: [1, 2, 3],
-               txt: v => `ヒットごとに 雷+${v}。雷が${SHOCK_AT}たまると感電：${SHOCK_DMG}ダメージと、次のターンの手数+1（1ターンに1回）。` },
-    chase:   { fam: 'spec', name: '追撃',     g: '追', v: [2, 3, 4],
-               txt: v => `攻撃のあと 追加で1ヒット。ダメージは ${v}×（1＋敵についている状態の種類）。` },
-    counter: { fam: 'spec', name: '反撃',     g: '反', v: [40, 60, 80],
-               txt: v => `敵のヒットを受けるたび、つながった攻撃が ${v}%の力で発動（1ターン${COUNTER_MAX}回まで）。` },
-    consume: { fam: 'spec', name: '毒消費',   g: '消', v: [2, 2.5, 3],
-               txt: v => `ヒットしたとき 敵の毒を全部消して、消した数×${v} のダメージ。` },
-    charge:  { fam: 'spec', name: '蓄積',     g: '蓄', v: [2, 3, 4],
-               txt: v => `ターンの終わりに たまり+${v}。つながった攻撃は、発動するたび 最初のヒットに +たまり。` },
-    refire:  { fam: 'spec', name: '再発動',   g: '再', v: [50, 75, 100],
-               txt: v => `つながった攻撃が もう1回 発動する（${v}%の力）。` },
-    amp:     { fam: 'enh',  name: '増幅',     g: '増', v: [50, 75, 100],
-               txt: v => `つながった攻撃・属性・防御ブロックの数字 +${v}%（回避には きかない）。` },
-    pierce:  { fam: 'enh',  name: '貫通',     g: '貫', v: [0, 2, 4],
-               txt: v => `つながった攻撃は 敵の装甲と結界を無視する。` + (v ? `さらにヒットダメージ+${v}。` : '') },
-    spread:  { fam: 'enh',  name: '拡散',     g: '拡', v: [50, 75, 100],
-               txt: v => `つながった属性を、はなれた攻撃にも ${v}%の力でのせる。` },
-    sustain: { fam: 'enh',  name: '持続強化', g: '持', v: [2, 4, 8], v2: [50, 65, 80],
-               txt: (v, lv) => `つながった毒・炎は ターンの終わりにへる量が 1/${v} になる。つながった盾は シールドが${B.sustain.v2[lv - 1]}%残る。` },
-    haste:   { fam: 'enh',  name: '発動加速', g: '速', v: [1, 2, 3],
-               txt: v => `つながった攻撃・追撃の ヒット数+${v}。つながった回避の 休み−${v}（1より短くはならない）。` },
-    convert: { fam: 'enh',  name: '効果変換', g: '変', v: [50, 100, 150],
-               txt: v => `つながった攻撃の 最初のヒットに、いまのシールドの${v}%を上乗せ。` },
-    shield:  { fam: 'def',  name: '盾',       g: '盾', v: [6, 10, 14],
-               txt: v => `ターンごとに シールド+${v}。シールドは敵の攻撃を防ぎ、ターンの終わりに消える。` },
-    dodge:   { fam: 'def',  name: '回避',     g: '避', v: [3, 2, 1],
-               txt: v => `敵のヒットを1回よける。よけたあと ${v}ターン休む（回避が何個あっても、休みは全部いっしょ）。` },
-    leech:   { fam: 'def',  name: '吸収',     g: '吸', v: [20, 30, 40],
-               txt: v => `つながった攻撃が与えたヒットダメージの ${v}%だけ HP回復。` },
-    tough:   { fam: 'def',  name: '堅牢',     g: '堅', v: [2, 3, 4],
+    area:    { fam: 'atk',  name: '範囲攻撃', g: '範', v: [3, 5, 7], hits: 1, sh: [-1, -1, -1, -1],
+               txt: v => `${v}ダメージ ×1ヒット。4つの辺が ぜんぶ凹。` },
+    shield:  { fam: 'def',  name: '盾',       g: '盾', v: [7, 10, 13], sh: [-1, -1, 0, 0],
+               txt: v => `シールド+${v}。敵の攻撃を防ぐ。ターンの終わりに消える。` },
+    tough:   { fam: 'def',  name: '堅牢',     g: '堅', v: [2, 3, 4], sh: [-1, 0, 0, 0],
                txt: v => `敵のヒット1回ごとに 受けるダメージ−${v}。` },
-    mirror:  { fam: 'def',  name: '反射',     g: '鏡', v: [50, 100, 150],
-               txt: v => `盾とつなぐと働く。シールドで防いだダメージの ${v}%を 敵に返す。` },
-    regen:   { fam: 'def',  name: '再生',     g: '癒', v: [3, 5, 7],
-               txt: v => `ターンの終わりに HP+${v}。` },
-    rubble:  { fam: 'junk', name: 'がれき',   g: '岩', v: [0, 0, 0],
-               txt: () => `何もしない。上にブロックを置けば消える。` },
+    dodge:   { fam: 'def',  name: '回避',     g: '避', v: [1, 2, 3], sh: [-1, 0, 0, 0],
+               txt: v => `敵の最初のヒットを ${v}回 よける。` },
+    poison:  { fam: 'abil', name: '毒',       g: '毒', v: [2, 3, 4], sh: [0, 1, 0, -1], kw: 'poison',
+               txt: v => `毒+${v}。` },
+    fire:    { fam: 'abil', name: '炎',       g: '炎', v: [1, 2, 3], sh: [-1, 1, 0, 0], kw: 'fire',
+               txt: v => `炎+${v}。` },
+    ice:     { fam: 'abil', name: '氷',       g: '氷', v: [2, 3, 4], sh: [0, 1, 0, -1], kw: 'ice',
+               txt: v => `氷+${v}。` },
+    shock:   { fam: 'abil', name: '雷',       g: '雷', v: [2, 3, 4], sh: [0, 1, -1, 0], kw: 'shock',
+               txt: v => `雷+${v}。` },
+    regen:   { fam: 'abil', name: '再生',     g: '癒', v: [2, 3, 4], sh: [0, 1, 0, -1],
+               txt: v => `HP+${v}。` },
+    chase:   { fam: 'abil', name: '追撃',     g: '追', v: [2, 3, 4], sh: [-1, 1, 0, 0],
+               txt: v => `${v}ダメージの追加ヒット。敵の状態1種類ごとに ダメージ+${v}。` },
+    consume: { fam: 'abil', name: '毒消費',   g: '消', v: [2, 3, 4], sh: [0, 1, -1, 0],
+               txt: v => `敵の毒を全部消して、消した数×${v} のダメージ。` },
+    charge:  { fam: 'abil', name: '蓄積',     g: '蓄', v: [3, 5, 7], sh: [0, 1, 0, -1], kw: 'charge',
+               txt: v => `たまり+${v}。` },
+    amp:     { fam: 'enh',  name: '増幅',     g: '増', v: [2, 2.5, 3], sh: [0, 1, 0, 0],
+               txt: v => `わたした相手の数字が ${v}倍。` },
+    haste:   { fam: 'enh',  name: '加速',     g: '速', v: [1, 2, 3], sh: [0, 1, 0, 0],
+               txt: v => `攻撃なら ヒット数+${v}。ほかは もう${v}回 働く。` },
+    pierce:  { fam: 'enh',  name: '貫通',     g: '貫', v: [0, 3, 6], sh: [0, 1, 0, 0],
+               txt: v => `攻撃・追撃に わたすと、装甲と結界を無視。` + (v ? `さらにヒットダメージ+${v}。` : '') },
+    spread:  { fam: 'enh',  name: '拡散',     g: '拡', v: [0], sh: [0, 1, 0, 0],
+               txt: () => `能力ブロックに わたすと、その能力が 全部の攻撃・防御ブロックに とどく。` },
+    sustain: { fam: 'enh',  name: '持続強化', g: '持', v: [50, 75, 100], sh: [0, 1, 0, 0],
+               txt: v => `盾：シールドが${v}%残る。炎：${v}%残る。毒：へらない。` },
+    convert: { fam: 'enh',  name: '効果変換', g: '変', v: [100, 150, 200], sh: [0, 1, 0, 0],
+               txt: v => `攻撃に わたすと、最初のヒットに ＋いまのシールドの${v}%。` },
+    refire:  { fam: 'enh',  name: '再発動',   g: '再', v: [0], sh: [0, 1, 0, 0],
+               txt: () => `わたした相手を、次のターンも引く。` },
+    counter: { fam: 'enh',  name: '反撃',     g: '反', v: [50, 75, 100], sh: [0, 1, 0, 0],
+               txt: v => `攻撃に わたすと、敵のヒット1回ごとに その攻撃が ${v}%の力で発動（1ターン${COUNTER_MAX}回まで）。` },
+    mirror:  { fam: 'enh',  name: '反射',     g: '鏡', v: [50, 75, 100], sh: [0, 1, 0, 0],
+               txt: v => `盾・堅牢に わたすと、防いだダメージの${v}%を 敵に返す。` },
+    leech:   { fam: 'enh',  name: '吸収',     g: '吸', v: [30, 45, 60], sh: [0, 1, 0, 0],
+               txt: v => `攻撃：与えたヒットダメージの${v}%回復。盾・堅牢：防いだダメージの${v}%回復。` },
   };
-  const TYPES = Object.keys(B).filter(t => t !== 'rubble');
-  const FAMS = { atk: '攻撃', elem: '属性', spec: '特殊', enh: '強化', def: '防御', junk: 'じゃま' };
+  const TYPES = Object.keys(B);
+  const FAMS = { atk: '攻撃', def: '防御', abil: '能力', enh: '強化' };
+  const FAM_HINT = {
+    atk: '凹だけ。能力を受け取ると、ヒットごとに働く。',
+    def: '凹だけ。能力を受け取ると、敵のヒット1回ごとに働く。',
+    abil: '凸でわたす。わたさなければ、自分で1回 働く（半分の力）。',
+    enh: '凸だけ。はめた相手を強くする。ひとりでは働かない。',
+  };
+  // ことばの説明（画面はこれをそのまま出す）
+  const KW = {
+    poison: { name: '毒', text: 'ターンの終わりに 毒の数だけダメージ。そのあと半分にへる。' },
+    fire:   { name: '炎', text: '敵がヒットを受けるたび 炎の数だけ追加ダメージ。ターンの終わりに消える。' },
+    ice:    { name: '氷', text: `${FREEZE_AT}たまると凍結：このターンの敵の攻撃のダメージが半分。` },
+    shock:  { name: '雷', text: `${SHOCK_AT}たまると感電：${SHOCK_DMG}ダメージと、次のターン 1個多く引く。` },
+    charge: { name: 'たまり', text: '次のターンから、最初に当たったヒットに ぜんぶ のる。' },
+  };
   const STATUS_NAMES = { poison: '毒', fire: '炎', ice: '氷', shock: '雷' };
-  // つながっていないと働かないブロック
-  const NEEDS_LINK = { elem: 1, spec: 1, enh: 1 };
-  function needsLink(type) { return !!NEEDS_LINK[B[type].fam] || type === 'leech' || type === 'mirror'; }
-  function blockText(type, lv) { const d = B[type]; return d.txt(d.v[lv - 1], lv); }
+  const maxLv = type => B[type].v.length;
+  const lvOf = (lv, type) => Math.min(maxLv(type), (lv && lv[type]) || 1);
+  const val = (lv, type) => B[type].v[lvOf(lv, type) - 1];
+  function blockText(type, lv) { const d = B[type]; return d.txt(d.v[Math.min(d.v.length, lv || 1) - 1]); }
 
-  // どの組み合わせが「つながる」か（画面の線も、計算も、この1つの表を使う）
-  function worksOne(a, b) {
-    const fa = B[a].fam, fb = B[b].fam;
-    if (fa === 'atk') return fb === 'elem' || fb === 'spec' || b === 'amp' || b === 'pierce' || b === 'haste' || b === 'convert' || b === 'leech';
-    if (a === 'amp') return fb === 'elem' || (fb === 'def' && b !== 'dodge');
-    if (a === 'haste') return b === 'chase' || b === 'dodge';
-    if (a === 'sustain') return b === 'poison' || b === 'fire' || b === 'shield';
-    if (a === 'spread') return fb === 'elem';
-    if (a === 'mirror') return b === 'shield' || b === 'pierce';
+  // はじめのデッキ（種類, 向き）。14個。受け取る側（攻撃・防御）8個、わたす側（能力・強化）6個。
+  const START_DECK = [
+    ['slash', 0], ['slash', 0], ['slash', 2], ['shot', 0], ['area', 0],
+    ['shield', 0], ['shield', 2], ['shield', 1],
+    ['amp', 0], ['amp', 1], ['haste', 2], ['poison', 1], ['poison', 0], ['regen', 3],
+  ];
+
+  // ---------------------------------------------------------------- 形
+  const NB = []; // NB[cell][辺] = となりのマス（なければ -1）。辺: 0上 1右 2下 3左
+  for (let i = 0; i < N; i++) {
+    const x = i % W, y = (i / W) | 0;
+    NB.push([y > 0 ? i - W : -1, x < W - 1 ? i + 1 : -1, y < H - 1 ? i + W : -1, x > 0 ? i - 1 : -1]);
+  }
+  const INNER = []; for (let i = 0; i < N; i++) if (NB[i].every(j => j >= 0)) INNER.push(i);
+  const EDGE_CACHE = {};
+  // 向き rot（時計回りに 0〜3）で回した辺の形
+  function edges(type, rot) {
+    const k = type + (rot & 3); let e = EDGE_CACHE[k];
+    if (!e) { const s = B[type].sh; e = EDGE_CACHE[k] = [0, 1, 2, 3].map(i => s[(i - (rot & 3) + 4) % 4]); }
+    return e;
+  }
+  const rd = x => Math.round(x);
+
+  // どの組が「効く」か（画面の印も、計算も、この1つの表を使う）。 g … わたす側の種類、x … 受け取る側のブロック
+  function accepts(g, x) {
+    const gf = B[g].fam;
+    if (gf === 'abil') return true; // 能力 → 攻撃・防御・能力（能力が相手のときは、相手が自分で働くときだけ。derive で見る）
+    if (g === 'amp' || g === 'haste' || g === 'refire') return true;
+    if (g === 'pierce') return x.fam === 'atk' || x.type === 'chase';
+    if (g === 'spread') return x.fam === 'abil';
+    if (g === 'sustain') return x.type === 'shield' || x.type === 'poison' || x.type === 'fire';
+    if (g === 'convert' || g === 'counter') return x.fam === 'atk';
+    if (g === 'mirror') return x.type === 'shield' || x.type === 'tough';
+    if (g === 'leech') return x.fam === 'atk' || x.type === 'shield' || x.type === 'tough';
     return false;
   }
-  function works(a, b) { return worksOne(a, b) || worksOne(b, a); }
-
-  // ---------------------------------------------------------------- 盤面の形
-  const NEAR4 = [], NEAR8 = [];
-  for (let i = 0; i < N; i++) {
-    const x = i % W, y = (i / W) | 0; const n4 = [], n8 = [];
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      if (!dx && !dy) continue;
-      const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      n8.push(ny * W + nx); if (!dx || !dy) n4.push(ny * W + nx);
-    }
-    NEAR4.push(n4); NEAR8.push(n8);
-  }
-  function isActive(b) { return !!b && !b.sealed && b.type !== 'rubble'; }
-  function mk(type) { return { type, lv: 1, sealed: 0, charge: 0, cd: 0 }; }
-  const rd = x => Math.round(x);
-  const rd1 = x => (x > 0 ? Math.max(1, Math.round(x)) : 0);
-  const fmt = x => (Math.abs(x - Math.round(x)) < 1e-9 ? String(Math.round(x)) : (Math.round(x * 10) / 10).toFixed(1));
 
   // ---------------------------------------------------------------- つながりの計算
   // 盤面から「いま何がどう働くか」を全部出す。resolve も画面もこれだけを見る。
-  // st … 敵のいまの状態（{ poison, fire }）。「いま効いているか」の印にだけ使う（戦いの計算には使わない）。なくてもよい。
-  function derive(board, st) {
-    const L = []; const links = [];
-    for (let i = 0; i < N; i++) L.push([]);
-    for (let a = 0; a < N; a++) {
-      const ba = board[a]; if (!isActive(ba)) continue;
-      const near = NEAR8[a];
-      for (let k = 0; k < near.length; k++) {
-        const b = near[k]; if (b < a) continue;
-        const bb = board[b]; if (!isActive(bb)) continue;
-        const straight = (a % W === b % W) || ((a / W) | 0) === ((b / W) | 0);
-        if (!straight && !(ba.type === 'area' || bb.type === 'area')) continue;
-        if (!works(ba.type, bb.type)) continue;
-        L[a].push(b); L[b].push(a); links.push([a, b]);
-      }
-    }
-    // 反射は「盾とつながっているとき」だけ働く。盾がないときは、貫通との線を出さない（線が出ているのに働かない、をなくす）
+  function derive(s) {
+    const board = s.board, cards = s.cards, sealed = s.sealed || [], lv = s.lv;
+    const V = t => val(lv, t);
+    const blk = new Array(N).fill(null), cells = [];
     for (let i = 0; i < N; i++) {
-      const b = board[i]; if (!isActive(b) || b.type !== 'mirror') continue;
-      if (L[i].some(j => board[j].type === 'shield')) continue;
-      for (const j of L[i].filter(k => board[k].type === 'pierce')) {
-        L[i].splice(L[i].indexOf(j), 1); L[j].splice(L[j].indexOf(i), 1);
-        const at = links.findIndex(p => (p[0] === i && p[1] === j) || (p[0] === j && p[1] === i)); if (at >= 0) links.splice(at, 1);
+      const id = board[i]; if (id == null) continue;
+      const c = cards[id], def = B[c.type];
+      blk[i] = { cell: i, id, type: c.type, fam: def.fam, e: edges(c.type, c.rot), sealed: sealed.indexOf(id) >= 0,
+                 ins: [], outs: [], m: {}, gives: false, live: true, got: [], ord: 0 };
+      cells.push(i);
+    }
+    // 1. はまっている所（凸 → 凹）
+    const links = [];
+    for (const a of cells) {
+      const A = blk[a]; if (A.sealed) continue;
+      for (let side = 0; side < 4; side++) {
+        if (A.e[side] !== 1) continue;
+        const b = NB[a][side]; if (b < 0) continue;
+        const X = blk[b]; if (!X || X.sealed || X.e[(side + 2) % 4] !== -1) continue;
+        const ln = { from: a, to: b, side, ok: false };
+        links.push(ln); A.outs.push(ln); X.ins.push(ln);
       }
     }
-    const val = i => B[board[i].type].v[board[i].lv - 1];
-    const ampOf = i => { let m = 1; const l = L[i]; for (let k = 0; k < l.length; k++) if (board[l[k]].type === 'amp') m += val(l[k]) / 100; return m; };
-
-    const elems = []; // {cell, kind, amt, spread}
+    // 2. 強化（わたした相手に効くか）
+    for (const ln of links) {
+      const A = blk[ln.from], X = blk[ln.to];
+      if (A.fam !== 'enh') continue;
+      if (accepts(A.type, X)) { ln.ok = true; X.m[A.type] = (X.m[A.type] || 0) + 1; }
+    }
+    const targetsAll = cells.filter(i => blk[i].fam === 'atk' || blk[i].fam === 'def');
+    // 3. 能力ブロック：わたすか、自分で働くか。
+    //    わたす相手が能力ブロックのときは、その相手が「自分で働く」ときだけ効く（わたす側になった相手には、とどかない）。
+    const state = {}; // cell → 1 計算中 / 2 すんだ
+    function settle(i) {
+      const A = blk[i]; if (state[i] === 2) return A.gives; if (state[i] === 1) return false; // 輪になっているときは、先に見た方が「わたす側」
+      state[i] = 1;
+      let gives = false;
+      for (const ln of A.outs) {
+        const X = blk[ln.to];
+        ln.ok = X.fam === 'abil' ? !settle(ln.to) : true;
+        if (ln.ok) gives = true;
+      }
+      A.spreadTo = [];
+      if (A.m.spread) { A.spreadTo = targetsAll.filter(t => !A.outs.some(ln => ln.to === t)); if (A.spreadTo.length) gives = true; }
+      A.gives = gives; state[i] = 2; return gives;
+    }
+    for (const i of cells) if (blk[i].fam === 'abil') settle(i);
+    const multOf = m => 1 + (m.amp || 0) * (V('amp') - 1), againOf = m => 1 + (m.haste || 0) * V('haste');
+    const giftOf = A => ({ kind: A.type, amt: rd(V(A.type) * multOf(A.m)), times: againOf(A.m), cell: A.cell, pierce: !!A.m.pierce, bonus: (A.m.pierce || 0) * V('pierce') });
+    for (const i of cells) {
+      const A = blk[i]; if (A.fam !== 'abil') continue;
+      A.gift = giftOf(A);
+      if (!A.gives) continue;
+      for (const ln of A.outs) if (ln.ok) blk[ln.to].got.push(A.gift);
+      for (const t of A.spreadTo) blk[t].got.push(A.gift);
+    }
+    // 4. 働くもの
     const d = {
-      L, links, atk: [], dodgeCells: [], dodgeRest: 0, shieldGain: 0, shieldCells: [], shieldKeep: 0, tough: 0, toughCells: [],
-      reflect: 0, reflectPierce: false, mirrorCells: [], regen: 0, regenCells: [], chargeCells: [],
-      keep: { poison: 0.5, fire: 0 }, lossDiv: { poison: 1, fire: 1 },
+      blk, links, cells, atk: [], solo: [], order: [],
+      shieldGain: 0, shieldCells: [], tough: 0, toughCells: [], dodge: 0, dodgeCells: [],
+      defGifts: [], reflect: 0, mirrorCells: [], leechDef: 0, shieldKeep: 0,
+      sustain: { poison: false, fire: false }, fireKeep: V('sustain') / 100, retain: [], lv,
     };
-    for (let i = 0; i < N; i++) {
-      const b = board[i]; if (!isActive(b)) continue;
-      const def = B[b.type], l = L[i];
-      if (def.fam === 'elem') {
-        let sp = 0;
-        for (let k = 0; k < l.length; k++) {
-          const t = board[l[k]].type;
-          if (t === 'spread') sp = Math.max(sp, val(l[k]) / 100);
-          if (t === 'sustain') d.lossDiv[b.type] = Math.max(d.lossDiv[b.type], val(l[k]));
-        }
-        elems.push({ cell: i, kind: b.type, amt: val(i) * ampOf(i), spread: sp });
-      } else if (b.type === 'shield') {
-        d.shieldGain += rd(val(i) * ampOf(i)); d.shieldCells.push(i);
-        for (let k = 0; k < l.length; k++) if (board[l[k]].type === 'sustain') d.shieldKeep = Math.max(d.shieldKeep, B.sustain.v2[board[l[k]].lv - 1] / 100);
-      } else if (b.type === 'tough') { d.tough += rd(val(i) * ampOf(i)); d.toughCells.push(i); }
-      else if (b.type === 'regen') { d.regen += rd(val(i) * ampOf(i)); d.regenCells.push(i); }
-      else if (b.type === 'dodge') {
-        let h = 0; for (let k = 0; k < l.length; k++) if (board[l[k]].type === 'haste') h += val(l[k]);
-        const rest = Math.max(1, val(i) - h); d.dodgeCells.push(i); if (d.dodgeRest === 0 || rest < d.dodgeRest) d.dodgeRest = rest;
-      } else if (b.type === 'mirror') {
-        let on = false, pc = false;
-        for (let k = 0; k < l.length; k++) { const t = board[l[k]].type; if (t === 'shield') on = true; if (t === 'pierce') pc = true; }
-        if (on) { d.reflect += val(i) / 100 * ampOf(i); d.mirrorCells.push(i); if (pc) d.reflectPierce = true; }
-      } else if (b.type === 'charge') { d.chargeCells.push({ cell: i, gain: val(i) }); }
+    for (const i of cells) {
+      const X = blk[i], m = X.m, v = V(X.type);
+      const mult = multOf(m), again = againOf(m);
+      if (m.refire) d.retain.push(X.id);
+      if (X.fam === 'atk') {
+        const a = { cell: i, type: X.type, dmg: rd(v * mult), hits: B[X.type].hits + again - 1, pierce: !!m.pierce, bonus: (m.pierce || 0) * V('pierce'),
+                    convert: (m.convert || 0) * V('convert') / 100, counter: m.counter || 0, counterMult: V('counter') / 100, leech: (m.leech || 0) * V('leech') / 100, gifts: X.got };
+        X.atk = a; d.atk.push(a); d.order.push(i);
+      } else if (X.fam === 'def') {
+        const n = rd(v * mult) * again; X.n = n;
+        if (X.type === 'shield') { d.shieldGain += n; d.shieldCells.push(i); if (m.sustain) d.shieldKeep = V('sustain') / 100; }
+        else if (X.type === 'tough') { d.tough += n; d.toughCells.push(i); }
+        else { d.dodge += n; d.dodgeCells.push(i); }
+        for (const g of X.got) d.defGifts.push({ g, at: i });
+        if (m.mirror) { d.reflect += m.mirror * V('mirror') / 100; d.mirrorCells.push(i); }
+        if (m.leech) d.leechDef += m.leech * V('leech') / 100;
+      } else if (X.fam === 'abil') {
+        if (m.sustain) d.sustain[X.type] = true;
+        if (!X.gives) { X.soloGift = Object.assign({}, X.gift, { amt: Math.ceil(X.gift.amt / 2) }); d.solo.push({ cell: i, gift: X.soloGift, extra: X.got }); d.order.push(i); } // ひとりは半分の力
+      } else X.live = X.outs.some(ln => ln.ok); // 強化：どこかに効いていれば働いている
     }
-    d.keep.poison = 1 - 0.5 / d.lossDiv.poison;
-    d.keep.fire = 1 - 1 / d.lossDiv.fire;
-
-    for (let i = 0; i < N; i++) {
-      const b = board[i]; if (!isActive(b) || B[b.type].fam !== 'atk') continue;
-      const def = B[b.type], l = L[i];
-      const a = {
-        cell: i, type: b.type, lv: b.lv, order: d.atk.length + 1,
-        dmg: val(i) * ampOf(i), hits: def.hits, charge: 0, pierce: false, pierceBonus: 0,
-        elem: { poison: 0, fire: 0, ice: 0, shock: 0 }, chase: [], refire: [], counter: [],
-        consume: 0, consumeCells: [], leech: 0, convert: 0,
-      };
-      const raw = { poison: 0, fire: 0, ice: 0, shock: 0 };
-      for (let k = 0; k < l.length; k++) {
-        const j = l[k], t = board[j].type;
-        if (t === 'haste') a.hits += val(j);
-        else if (t === 'pierce') { a.pierce = true; a.pierceBonus += val(j); }
-        else if (t === 'convert') a.convert += val(j) / 100;
-        else if (t === 'leech') a.leech += val(j) / 100 * ampOf(j);
-        else if (t === 'charge') a.charge += board[j].charge;
-        else if (t === 'consume') { a.consume += val(j) * ampOf(j); a.consumeCells.push(j); }
-        else if (t === 'refire') a.refire.push({ cell: j, mult: val(j) / 100 * ampOf(j) });
-        else if (t === 'counter') a.counter.push({ cell: j, mult: val(j) / 100 * ampOf(j) });
-        else if (t === 'chase') {
-          let h = 1; const lq = L[j];
-          for (let q = 0; q < lq.length; q++) if (board[lq[q]].type === 'haste') h += val(lq[q]);
-          a.chase.push({ cell: j, base: val(j) * ampOf(j), hits: h });
-        }
-      }
-      for (let k = 0; k < elems.length; k++) {
-        const e = elems[k];
-        if (l.indexOf(e.cell) >= 0) raw[e.kind] += e.amt;
-        else if (e.spread > 0) raw[e.kind] += e.amt * e.spread;
-      }
-      a.elem.poison = rd1(raw.poison); a.elem.fire = rd1(raw.fire); a.elem.ice = rd1(raw.ice); a.elem.shock = rd1(raw.shock);
-      d.atk.push(a);
-    }
-    d.elems = elems;
-
-    // ---- 「いま効いているか」（画面の線・点線の札・置く前の数字は、これを使う。戦いの計算には使わない）
-    //   live[i] … マス i のブロックが、いま何かの役に立っているか。
-    //   LL[i]   … マス i と「効いている線」でつながっているマス。 liveLinks … 効いている線の一覧。
-    //   線が効いているのは、両はしが効いているとき（拡散だけは、のせる先の攻撃があるときに限る）。
-    const live = [], LL = [], liveLinks = [];
-    for (let i = 0; i < N; i++) { live.push(false); LL.push([]); }
-    const tp = i => board[i].type, fm = i => B[board[i].type].fam;
-    const near = (i, f) => { const l = L[i]; for (let k = 0; k < l.length; k++) if (f(l[k])) return true; return false; };
-    const atkCells = d.atk.map(a => a.cell);
-    // その属性が、まだ のっていない攻撃があるか（あれば、拡散が役に立つ）
-    const spreadHelps = e => atkCells.some(a => L[a].indexOf(e) < 0);
-    // 敵にその状態が つく（ついている）か。持続強化は、ターンの終わりに毒・炎がへる量を小さくするので、
-    // 毒・炎が敵にあるなら、攻撃につながっていない毒・炎ブロックごしでも効いている。
-    const has = k => !!(st && st[k] > 0) || d.atk.some(a => a.elem[k] > 0);
-    const kept = j => (tp(j) === 'poison' || tp(j) === 'fire') && has(tp(j));
-    // その属性が、どれかの攻撃に のっているか（じかに、または拡散で）。増幅が属性に効くのは、このときだけ。
-    const reach = i => near(i, j => fm(j) === 'atk') || (near(i, j => tp(j) === 'spread') && spreadHelps(i));
-    // 1回目：ひとりで働くもの
-    for (let i = 0; i < N; i++) if (isActive(board[i])) { const t = tp(i); if (fm(i) === 'atk' || t === 'shield' || t === 'tough' || t === 'regen' || t === 'dodge' || t === 'charge') live[i] = true; } // 蓄積は、ひとりでも たまりがふえる
-    // 2回目：攻撃に のるもの（属性・特殊・吸収）、盾がいる反射
-    for (let i = 0; i < N; i++) if (isActive(board[i]) && !live[i]) {
-      const t = tp(i), f = fm(i);
-      if (f === 'spec' || t === 'leech') live[i] = near(i, j => fm(j) === 'atk');
-      else if (f === 'elem') live[i] = reach(i) || (kept(i) && near(i, j => tp(j) === 'sustain'));
-      else if (t === 'mirror') live[i] = near(i, j => tp(j) === 'shield');
-    }
-    // 3回目：強化（効いている相手につながっているとき）
-    for (let i = 0; i < N; i++) if (isActive(board[i]) && fm(i) === 'enh') {
-      const t = tp(i);
-      if (t === 'amp') live[i] = near(i, j => live[j] && (fm(j) === 'atk' || (fm(j) === 'elem' && reach(j)) || (fm(j) === 'def' && tp(j) !== 'dodge')));
-      else if (t === 'pierce') live[i] = near(i, j => fm(j) === 'atk' || (tp(j) === 'mirror' && live[j]));
-      else if (t === 'spread') live[i] = near(i, j => fm(j) === 'elem' && spreadHelps(j));
-      else if (t === 'sustain') live[i] = near(i, j => tp(j) === 'shield' || kept(j));
-      else if (t === 'haste') live[i] = near(i, j => fm(j) === 'atk' || tp(j) === 'dodge' || (tp(j) === 'chase' && live[j]));
-      else if (t === 'convert') live[i] = near(i, j => fm(j) === 'atk');
-    }
-    for (let k = 0; k < links.length; k++) {
-      const a = links[k][0], b = links[k][1];
-      let ok = live[a] && live[b];
-      if (ok && tp(a) === 'spread' && fm(b) === 'elem') ok = spreadHelps(b);
-      if (ok && tp(b) === 'spread' && fm(a) === 'elem') ok = spreadHelps(a);
-      // 増幅と属性：その属性が攻撃に のっていない（持続強化で もっているだけ）なら、増幅は何もしない
-      if (ok && tp(a) === 'amp' && fm(b) === 'elem') ok = reach(b);
-      if (ok && tp(b) === 'amp' && fm(a) === 'elem') ok = reach(a);
-      if (ok) { LL[a].push(b); LL[b].push(a); liveLinks.push(links[k]); }
-    }
-    d.live = live; d.LL = LL; d.liveLinks = liveLinks;
+    d.order.sort((a, b) => a - b);
+    d.order.forEach((c, k) => { blk[c].ord = k + 1; });
     return d;
   }
-
-  // 働いていないブロックに出す ひとこと（何につなげば働くか）
-  function idleHint(type) {
-    const f = B[type].fam;
-    if (type === 'poison' || type === 'fire') return `攻撃ブロックにつなぐと働く（拡散でも とどく）。敵に${B[type].name}が ついているときは、持続強化につないでも働く。`;
-    if (f === 'elem') return '攻撃ブロックにつなぐと働く（拡散でも とどく）。';
-    if (type === 'sustain') return '盾か、敵に ついている毒・炎のブロックにつなぐと働く。';
-    if (f === 'spec' || type === 'leech' || type === 'convert') return '攻撃ブロックにつなぐと働く。';
-    if (type === 'mirror') return '盾につなぐと働く。';
-    if (type === 'spread') return '攻撃につながった属性に つなぐと働く（ほかの攻撃があるとき）。';
-    if (f === 'enh') return '働いているブロックにつなぐと働く。';
-    return '';
+  // 破壊でねらわれるブロック（いちばん多く はまっているもの。同じ数なら左上が先）
+  function destroyTargets(d, n) {
+    const c = d.cells.map(i => ({ i, k: d.blk[i].ins.length + d.blk[i].outs.length })).filter(x => x.k > 0);
+    c.sort((a, b) => b.k - a.k || a.i - b.i);
+    return c.slice(0, n).map(x => x.i);
   }
 
-  // 攻撃スキル1つの説明（画面の「スキル一覧」と同じ数字）
-  function attackLines(a) {
-    const out = [`${rd(a.dmg)}ダメージ ×${a.hits}ヒット`];
-    if (a.charge) out.push(`最初のヒット＋たまり${a.charge}`);
-    if (a.pierce) out.push('装甲と結界を無視' + (a.pierceBonus ? `（ヒット+${a.pierceBonus}）` : ''));
-    for (const k of ['poison', 'fire', 'ice', 'shock']) if (a.elem[k]) out.push(k === 'fire' ? `ヒットで 炎${a.elem[k]}` : `ヒットごとに ${STATUS_NAMES[k]}+${a.elem[k]}`);
-    for (const q of a.chase) out.push(`追撃 ${fmt(q.base)}×（1＋状態の種類）×${q.hits}ヒット`);
-    if (a.consume) out.push(`毒消費 ×${fmt(a.consume)}`);
-    if (a.convert) out.push(`最初のヒット＋シールドの${rd(a.convert * 100)}%`);
-    if (a.leech) out.push(`吸収 ${rd(a.leech * 100)}%`);
-    for (const r of a.refire) out.push(`再発動 ${rd(r.mult * 100)}%`);
-    for (const c of a.counter) out.push(`反撃 ${rd(c.mult * 100)}%`);
+  // 能力1つの短い文（「毒+2」など）。画面の札・説明・きろくが同じものを使う。
+  function giftText(g) {
+    const t = g.times > 1 ? ` ×${g.times}回` : '';
+    if (g.kind === 'poison' || g.kind === 'fire' || g.kind === 'ice' || g.kind === 'shock') return `${STATUS_NAMES[g.kind]}+${g.amt}${t}`;
+    if (g.kind === 'regen') return `HP+${g.amt}${t}`;
+    if (g.kind === 'chase') return `追撃${g.amt + (g.bonus || 0)}${g.pierce ? '（貫通）' : ''}${t}`;
+    if (g.kind === 'consume') return `毒消費×${g.amt}${t}`;
+    if (g.kind === 'charge') return `たまり+${g.amt}${t}`;
+    return '';
+  }
+  // 札の上に出す短い字（種類の字は札に出ているので、数字だけ）
+  function shortGift(g) {
+    const n = g.kind === 'chase' ? String(g.amt + (g.bonus || 0)) : g.kind === 'consume' ? `×${g.amt}` : `+${g.amt}`;
+    return g.times > 1 ? `${n} ${g.times}回` : n;
+  }
+  // 盤面のブロック1つが「いま何をするか」。 main … 札に大きく出す短い字、 lines … 説明の行、 idle … 働いていない
+  function summary(d, cell) {
+    const X = d.blk[cell]; if (!X) return null;
+    const out = { main: '', lines: [], idle: false, gives: false };
+    const m = X.m, V = t => val(d.lv, t);
+    if (X.sealed) out.lines.push('封印：このターン、凸も凹も はまらない。');
+    if (X.fam === 'atk') {
+      const a = X.atk; out.main = `${a.dmg}×${a.hits}`;
+      out.lines.push(`${a.dmg}ダメージ ×${a.hits}ヒット`);
+      if (a.pierce) out.lines.push('装甲と結界を無視' + (a.bonus ? `（ヒット+${a.bonus}）` : ''));
+      for (const g of a.gifts) out.lines.push(`ヒットごとに ${giftText(g)}`);
+      if (a.convert) out.lines.push(`最初のヒットに ＋いまのシールドの${rd(a.convert * 100)}%`);
+      if (a.leech) out.lines.push(`与えたヒットダメージの${rd(a.leech * 100)}%回復`);
+      if (a.counter) out.lines.push(`敵のヒット1回ごとに ${rd(a.counterMult * 100)}%の力で発動（${COUNTER_MAX * a.counter}回まで）`);
+    } else if (X.fam === 'def') {
+      if (X.type === 'shield') { out.main = `+${X.n}`; out.lines.push(`シールド+${X.n}`); if (m.sustain) out.lines.push(`シールドが${V('sustain')}%残る`); }
+      else if (X.type === 'tough') { out.main = `−${X.n}`; out.lines.push(`敵のヒット1回ごとに −${X.n}`); }
+      else { out.main = `${X.n}回`; out.lines.push(`敵の最初のヒットを ${X.n}回 よける`); }
+      for (const g of X.got) out.lines.push(`敵のヒット1回ごとに ${giftText(g)}`);
+      if (m.mirror) out.lines.push(`防いだダメージの${m.mirror * V('mirror')}%を返す`);
+      if (m.leech) out.lines.push(`防いだダメージの${m.leech * V('leech')}%回復`);
+    } else if (X.fam === 'abil') {
+      out.main = shortGift(X.gives ? X.gift : X.soloGift);
+      if (X.gives) {
+        out.gives = true;
+        const to = X.outs.filter(ln => ln.ok).map(ln => B[d.blk[ln.to].type].name);
+        out.lines.push(`${giftText(X.gift)} を わたしている（自分では働かない）` + (to.length ? `：${to.join('・')}` : ''));
+        if (X.spreadTo.length) out.lines.push(`拡散：攻撃・防御ブロック ${X.spreadTo.length}個にも とどく`);
+      } else {
+        out.lines.push(`自分で1回 働く（半分の力）：${giftText(X.soloGift)}`);
+        for (const g of X.got) out.lines.push(`いっしょに ${giftText(g)}`);
+      }
+      if (m.sustain) out.lines.push(X.type === 'poison' ? 'このターンの終わりに 毒がへらない' : `炎が${V('sustain')}%残る`);
+    } else {
+      out.gives = X.live; out.idle = !X.live;
+      if (X.live) out.lines.push(`${X.outs.filter(ln => ln.ok).map(ln => B[d.blk[ln.to].type].name).join('・')} を強くしている`);
+      else out.lines.push(X.outs.length ? 'はまっているが、この相手には効かない。' : 'どこにも はまっていない（働かない）。');
+    }
+    if (m.refire) out.lines.push('次のターンも引く');
     return out;
   }
 
   // ---------------------------------------------------------------- 敵
-  // 敵。script(c) は c 周目の行動のならび（周がすすむほど強くなる）
+  // script(c) は c 周目の行動のならび（周がすすむほど強くなる）。数字は「1戦目」の強さ。何戦目かで STAGE_ATK がかかる。
   const A = (dmg, hits) => ({ k: 'atk', dmg, hits: hits || 1 });
   const ENEMIES = {
     golem: {
-      name: '岩ゴーレム', g: '岩', hp: 400, armor: 3,
-      trait: '装甲3：ヒットのダメージを 1回ごとに3へらす（毒などの状態のダメージは へらせない）。',
-      hint: '一撃が重い。行動はおそい。',
-      script: c => {
-        const l = [
-          { m: 3, label: 'なぐる', parts: [A(16 + 22 * c)] },
-          { m: 2, label: 'かためる', parts: c >= 1 ? [A(20 * c), { k: 'guard', n: 14 + 12 * c }] : [{ k: 'guard', n: 14 }] },
-          { m: 4, label: '大岩おとし', parts: [A(28 + 34 * c)] },
-        ];
-        if (c >= 1) l.push({ m: 3, label: 'じならし', parts: [A(10 + 20 * c), { k: 'destroy', n: 1 }] });
-        return l;
-      },
+      name: '岩ゴーレム', g: '岩', hp: 80, armor: 2,
+      trait: '装甲2：ヒットのダメージを 1回ごとに2へらす（毒などは へらせない）。',
+      hint: '一撃が重い。',
+      script: c => [
+        { label: 'なぐる', parts: [A(12 + 5 * c)] },
+        { label: 'かためる', parts: c >= 1 ? [A(6 * c), { k: 'guard', n: 10 + 5 * c }] : [{ k: 'guard', n: 10 }] },
+        { label: '大岩おとし', parts: [A(22 + 9 * c)] },
+        { label: 'じならし', parts: [A(8 + 5 * c), { k: 'destroy', n: 1 }] },
+      ],
     },
     hunter: {
-      name: '影の狩人', g: '影', hp: 330, evade: 2,
+      name: '影の狩人', g: '影', hp: 90, evade: 2,
       trait: '身かわし：毎ターン、あなたの最初の2ヒットをよける。',
-      hint: 'すばやい連続攻撃。手数が少ない。',
+      hint: 'すばやい連続攻撃。',
       script: c => {
         const l = [
-          { m: 2, label: '三連づき', parts: [A(5 + 7 * c, 3)] },
-          { m: 3, label: 'わなをしかける', parts: [A(7 + 9 * c, 2), { k: 'rubble', n: 1 }] },
-          { m: 2, label: '乱れうち', parts: [A(3 + 5 * c, 5)] },
+          { label: '三連づき', parts: [A(4 + 2 * c, 3)] },
+          { label: 'わなをしかける', parts: [A(6 + 3 * c, 2), { k: 'rubble', n: 2 }] },
+          { label: '乱れうち', parts: [A(3 + c, 5)] },
         ];
-        if (c >= 1) l.push({ m: 3, label: '影にかくれる', parts: [A(4 + 10 * c, 2), { k: 'guard', n: 8 + 8 * c }] });
+        if (c >= 1) l.push({ label: '影にかくれる', parts: [A(5 + 3 * c, 2), { k: 'guard', n: 8 + 5 * c }] });
         return l;
       },
     },
     hydra: {
-      name: 'ヒドラ', g: '蛇', hp: 380, regen: 8,
-      trait: '再生8：ターンの終わりに HPを8回復する。ときどき脱皮して 状態を全部消す。',
+      name: 'ヒドラ', g: '蛇', hp: 95, regen: 5,
+      trait: '再生5：ターンの終わりに HPを5回復する。ときどき脱皮して 状態を全部消す。',
       hint: '首がふえて ヒット数がふえる。',
       script: c => {
-        const h = Math.min(c, 2);
+        const h = c >= 2 ? 1 : 0;
         const l = [
-          { m: 3, label: 'かみつく', parts: [A(16 + 10 * c, 1 + h)] },
-          { m: 3, label: '首をふりまわす', parts: [A(9 + 5 * c, 2 + h)] },
-          { m: 2, label: '脱皮', parts: [{ k: 'cleanse' }, { k: 'guard', n: 10 + 6 * c }] },
+          { label: 'かみつく', parts: [A(9 + 3 * c, 1 + h)] },
+          { label: '首をふりまわす', parts: [A(5 + 2 * c, 2 + h)] },
+          { label: '脱皮', parts: [{ k: 'cleanse' }, { k: 'guard', n: 8 + 4 * c }] },
         ];
-        if (c >= 1) l.push({ m: 3, label: '毒のいき', parts: [A(8 + 12 * c), { k: 'curse', n: 2 + 3 * c }] });
+        if (c >= 1) l.push({ label: '毒のいき', parts: [A(6 + 4 * c), { k: 'curse', n: 2 + 2 * c }] });
         return l;
       },
     },
     mage: {
-      name: '呪いの術師', g: '呪', hp: 400,
-      trait: '盤面をじゃまする：封印（働かなくなる）・がれき・破壊。呪いはシールドで防げない。',
-      hint: '長引くほど盤面がこわれる。',
+      name: '呪いの術師', g: '呪', hp: 105,
+      trait: 'じゃまをする：封印・がれき・破壊。呪いはシールドで防げない。',
+      hint: '長引くほど じゃまがふえる。',
       script: c => {
         const l = [
-          { m: 3, label: '呪いをかける', parts: [A(13 + 14 * c), { k: 'curse', n: 6 + 4 * c }] },
-          { m: 3, label: '封印の術', parts: [A(22 + 16 * c), { k: 'seal', n: c >= 1 ? 3 : 2, dur: 2 }] },
-          { m: 2, label: '結界をはる', parts: [{ k: 'guard', n: 26 + 14 * c }] },
-          { m: 3, label: 'がれき落とし', parts: [A(24 + 16 * c), { k: 'rubble', n: 2 }] },
+          { label: '呪いをかける', parts: [A(9 + 4 * c), { k: 'curse', n: 3 + 2 * c }] },
+          { label: '封印の術', parts: [A(13 + 5 * c), { k: 'seal', n: c >= 1 ? 3 : 2 }] },
+          { label: '結界をはる', parts: [{ k: 'guard', n: 16 + 8 * c }] },
+          { label: 'がれき落とし', parts: [A(14 + 5 * c), { k: 'rubble', n: c >= 1 ? 3 : 2 }] },
         ];
-        if (c >= 1) l.push({ m: 4, label: '大呪文', parts: [A(30 + 44 * c), { k: 'destroy', n: c >= 2 ? 2 : 1 }] });
+        if (c >= 1) l.push({ label: '大呪文', parts: [A(18 + 12 * c), { k: 'destroy', n: c >= 2 ? 2 : 1 }] });
         return l;
       },
     },
     berserk: {
-      name: '狂戦士', g: '狂', hp: 400, thorns: 1,
+      name: '狂戦士', g: '狂', hp: 120, thorns: 1,
       trait: 'トゲ1：あなたのヒット1回ごとに、あなたが1ダメージ受ける（シールドで防げる）。',
       hint: '手数の多い連続攻撃。',
-      script: c => {
-        const l = [
-          { m: 2, label: '三連なぐり', parts: [A(5 + 6 * c, 3)] },
-          { m: 3, label: 'あばれる', parts: [A(5 + 6 * c, 4)] },
-          { m: 2, label: 'めった打ち', parts: [A(3 + 4 * c, 6)] },
-        ];
-        if (c >= 1) l.push({ m: 3, label: '頭突き', parts: [A(4 + 12 * c, 2), { k: 'seal', n: 1, dur: 2 }] });
-        return l;
-      },
+      script: c => [
+        { label: '三連なぐり', parts: [A(5 + 2 * c, 3)] },
+        { label: 'あばれる', parts: [A(4 + 2 * c, 4)] },
+        { label: 'めった打ち', parts: [A(3 + c, 6)] },
+        { label: '頭突き', parts: [A(6 + 4 * c, 2), { k: 'seal', n: 1 }] },
+      ],
     },
     // テスト用（画面には出さない）
-    dummy: { name: 'かかし', g: '案', hp: 99999, trait: '', hint: '', hidden: true, script: () => [{ m: 3, label: '立っている', parts: [] }] },
+    dummy: { name: 'かかし', g: '案', hp: 99999, trait: '', hint: '', hidden: true, script: () => [{ label: '立っている', parts: [] }] },
   };
   const ENEMY_IDS = Object.keys(ENEMIES).filter(k => !ENEMIES[k].hidden);
 
@@ -369,12 +370,11 @@
     for (const p of it.parts) {
       if (p.k === 'atk') out.push({ k: 'atk', text: p.hits > 1 ? `攻撃 ${p.dmg}×${p.hits}回` : `攻撃 ${p.dmg}` });
       else if (p.k === 'guard') out.push({ k: 'guard', text: `結界 ${p.n}（次のターン、ヒットのダメージを${p.n}まで防ぐ）` });
-      else if (p.k === 'seal') out.push({ k: 'seal', text: `封印 ${it.cells.seal.length}マス（${p.dur}ターン働かない）` });
-      else if (p.k === 'destroy') out.push({ k: 'destroy', text: `破壊 ${it.cells.destroy.length}マス（そのマスのブロックが消える）` });
-      else if (p.k === 'rubble') out.push({ k: 'rubble', text: `がれき ${it.cells.rubble.length}マス（空いていれば置かれる）` });
+      else if (p.k === 'seal') out.push({ k: 'seal', text: `封印 ${p.n}個（次のターン、手札の${p.n}個は はまらない）` });
+      else if (p.k === 'destroy') out.push({ k: 'destroy', text: `破壊 ${p.n}個（いちばん多く はまっているブロックが、この戦いから消える）` });
+      else if (p.k === 'rubble') out.push({ k: 'rubble', text: `がれき ${it.cells.rubble.length}マス（次のターン、そのマスに置けない）` });
       else if (p.k === 'cleanse') out.push({ k: 'cleanse', text: '脱皮（敵の毒・炎・氷・雷を全部消す）' });
       else if (p.k === 'curse') out.push({ k: 'curse', text: `呪い+${p.n}（ターンの終わりに呪いの数だけダメージ、1ずつへる）` });
-      else if (p.k === 'heal') out.push({ k: 'heal', text: `回復 ${p.n}` });
     }
     if (!out.length) out.push({ k: 'none', text: '何もしない' });
     return out;
@@ -386,41 +386,40 @@
     t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
+  function shuffle(s, a) { for (let i = a.length - 1; i > 0; i--) { const j = (rnd(s) * (i + 1)) | 0; const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
   function pick(s, arr, n) {
     const a = arr.slice(), out = [];
     while (out.length < n && a.length) out.push(a.splice((rnd(s) * a.length) | 0, 1)[0]);
     return out;
   }
-  function draw(s) {
-    if (!s.bag.length) {
-      const b = TYPES.concat(TYPES);
-      for (let i = b.length - 1; i > 0; i--) { const j = (rnd(s) * (i + 1)) | 0; const t = b[i]; b[i] = b[j]; b[j] = t; }
-      s.bag = b;
-    }
-    return s.bag.pop();
-  }
 
-  // ---------------------------------------------------------------- 状態
-  function newGame(enemyId, seed) {
-    const def = ENEMIES[enemyId];
+  // ---------------------------------------------------------------- 1戦の状態
+  // o: { enemyId, stage, deck:[[type,rot]|{type,rot}], seed, hp, rot（回せるか）, hand（引く数） }
+  function newFight(o) {
+    const def = ENEMIES[o.enemyId], stage = o.stage || 0;
+    const cards = (o.deck || START_DECK).map((c, id) => (Array.isArray(c) ? { id, type: c[0], rot: c[1] & 3 } : { id, type: c.type, rot: c.rot & 3 }));
+    const hp = Math.round(def.hp * STAGE_HP[stage]);
     const s = {
-      rs: (seed | 0) || 1, enemyId, turn: 0, phase: 'start', moves: 1, bonus: 0,
-      board: new Array(N).fill(null),
-      p: { hp: MAXHP, max: MAXHP, shield: 0, curse: 0, dodgeCd: 0 },
-      e: { id: enemyId, hp: def.hp, max: def.hp, armor: def.armor || 0, evade: def.evade || 0, regen: def.regen || 0, thorns: def.thorns || 0,
+      rs: (o.seed | 0) || 1, enemyId: o.enemyId, stage, turn: 0, phase: 'place', canRot: !!o.rot, handSize: o.hand || HAND, lv: o.lv || {},
+      cards, deck: [], discard: [], gone: [], hand: [], board: new Array(N).fill(null),
+      sealed: [], blocked: [], sealNext: 0, blockNext: [], drawBonus: 0,
+      p: { hp: o.hp || MAXHP, max: MAXHP, shield: 0, curse: 0, charge: 0, chargeNext: 0 },
+      e: { id: o.enemyId, hp, max: hp, armor: def.armor || 0, evade: def.evade || 0, regen: def.regen || 0, thorns: def.thorns || 0,
            poison: 0, fire: 0, ice: 0, shock: 0, guard: 0, frozen: 0, cyc: 0, si: 0 },
-      shop: ['slash', 'shot', 'area', null, null, null, null, null], keep: null, bag: [],
       intent: null,
-      stats: { dealt: {}, total: 0, taken: 0, blocked: 0, healed: 0, placed: {} },
+      stats: { dealt: {}, total: 0, taken: 0, blocked: 0, healed: 0 },
     };
+    s.deck = shuffle(s, cards.map(c => c.id));
+    beginTurn(s);
     return s;
   }
   function cloneState(s) {
     const c = Object.assign({}, s);
-    c.board = s.board.map(b => (b ? { type: b.type, lv: b.lv, sealed: b.sealed, charge: b.charge, cd: b.cd } : null));
+    c.cards = s.canRot ? s.cards.map(k => ({ id: k.id, type: k.type, rot: k.rot })) : s.cards; // 回さないなら札は書きかえないので共有
+    c.deck = s.deck.slice(); c.discard = s.discard.slice(); c.gone = s.gone.slice(); c.hand = s.hand.slice(); c.board = s.board.slice();
+    c.sealed = s.sealed.slice(); c.blocked = s.blocked.slice(); c.blockNext = s.blockNext.slice();
     c.p = Object.assign({}, s.p); c.e = Object.assign({}, s.e);
-    c.shop = s.shop.slice(); c.bag = s.bag.slice();
-    c.stats = Object.assign({}, s.stats); c.stats.dealt = Object.assign({}, s.stats.dealt); c.stats.placed = Object.assign({}, s.stats.placed);
+    c.stats = Object.assign({}, s.stats); c.stats.dealt = Object.assign({}, s.stats.dealt);
     return c; // intent は作ったあと書きかえないので共有してよい
   }
 
@@ -430,262 +429,206 @@
     if (s.e.si >= list.length) { s.e.cyc++; s.e.si = 0; list = def.script(s.e.cyc); }
     const raw = list[s.e.si];
     // 3周目からは「怒り」：攻撃がさらに強くなる（長引かせると危ない）
-    const rage = s.e.cyc >= 2 ? 1 + 0.4 * (s.e.cyc - 1) : 1;
-    const parts = raw.parts.map(p => (p.k === 'atk' && rage > 1 ? { k: 'atk', dmg: Math.round(p.dmg * rage), hits: p.hits } : p));
-    const it = { moves: raw.m, label: raw.label, parts, rage: rage > 1, cells: { seal: [], destroy: [], rubble: [] } };
-    for (const part of parts) {
-      if (part.k === 'seal' || part.k === 'destroy' || part.k === 'rubble') {
-        const pool = [];
-        for (let i = 0; i < N; i++) {
-          const b = s.board[i];
-          if (part.k === 'rubble') { if (!b) pool.push(i); }
-          else if (b && b.type !== 'rubble' && !(part.k === 'seal' && b.sealed)) pool.push(i);
-        }
-        it.cells[part.k] = pick(s, pool, part.n).sort((a, b) => a - b);
-      }
+    const rage = s.e.cyc >= 2 ? 1 + 0.3 * (s.e.cyc - 1) : 1, k = STAGE_ATK[s.stage] * rage;
+    const parts = raw.parts.map(p => (p.k === 'atk' ? { k: 'atk', dmg: Math.max(1, Math.round(p.dmg * k)), hits: p.hits }
+      : p.k === 'guard' ? { k: 'guard', n: Math.round(p.n * STAGE_HP[s.stage]) } : p));
+    const it = { label: raw.label, parts, rage: rage > 1, cells: { rubble: [] } };
+    for (const part of parts) if (part.k === 'rubble') {
+      // がれきは、まん中のマスから落ちる（はしに落ちても じゃまにならないので）
+      it.cells.rubble = pick(s, INNER, part.n).sort((a, b) => a - b);
     }
     return it;
   }
+  function drawOne(s) {
+    if (!s.deck.length) { if (!s.discard.length) return false; s.deck = shuffle(s, s.discard); s.discard = []; }
+    s.hand.push(s.deck.pop()); return true;
+  }
   function beginTurn(s) {
     s.turn++;
-    for (let i = 0; i < SHOP; i++) s.shop[i] = draw(s);
+    s.blocked = s.blockNext; s.blockNext = [];
+    s.hand = []; s.board = new Array(N).fill(null);
+    const n = s.handSize + s.drawBonus; s.drawBonus = 0;
+    for (let i = 0; i < n; i++) if (!drawOne(s)) break;
+    s.sealed = s.sealNext > 0 ? pick(s, s.hand, s.sealNext) : []; s.sealNext = 0;
     s.intent = makeIntent(s);
-    s.moves = s.intent.moves + s.bonus; s.bonusUsed = s.bonus; s.bonus = 0;
     s.phase = 'place';
   }
 
-  // ---------------------------------------------------------------- プレイヤーの手
-  function srcType(s, src) { return src === 'keep' ? s.keep : s.shop[src]; }
-  // 'new' | 'up' | 'replace' | null（置けない）
-  function placeKind(s, src, cell) {
-    const type = srcType(s, src);
-    if (!type || (s.phase !== 'place' && s.phase !== 'start') || s.moves <= 0 || cell < 0 || cell >= N) return null;
-    const b = s.board[cell];
-    if (!b) return 'new';
-    if (b.type === type) return b.lv < MAXLV ? 'up' : null;
-    return 'replace';
+  // ---------------------------------------------------------------- プレイヤーの手（置き方は、発動するまで何回でも変えられる）
+  function cellOf(s, id) { return s.board.indexOf(id); }
+  function canPut(s, id, cell) {
+    return s.phase === 'place' && cell >= 0 && cell < N && s.hand.indexOf(id) >= 0 && s.blocked.indexOf(cell) < 0 && s.board[cell] !== id;
   }
-  function place(s, src, cell) {
-    const kind = placeKind(s, src, cell); if (!kind) return null;
-    const type = srcType(s, src);
-    if (kind === 'up') s.board[cell].lv++;
-    else s.board[cell] = mk(type);
-    if (src === 'keep') s.keep = null; else s.shop[src] = null;
-    s.stats.placed[type] = (s.stats.placed[type] || 0) + 1;
-    s.moves--;
-    if (s.phase === 'start') beginTurn(s);
-    return kind;
+  // id のブロックを cell に置く。そこに別のブロックがあれば入れかえる（手札から置いたときは、もとのブロックは手札にもどる）。
+  function put(s, id, cell) {
+    if (!canPut(s, id, cell)) return false;
+    const from = s.board.indexOf(id), other = s.board[cell];
+    s.board[cell] = id; if (from >= 0) s.board[from] = other;
+    return true;
   }
-  function canSwap(s, a, b) { return s.phase === 'place' && s.moves > 0 && a !== b && a >= 0 && b >= 0 && a < N && b < N && !!(s.board[a] || s.board[b]); }
-  function swap(s, a, b) {
-    if (!canSwap(s, a, b)) return false;
-    const t = s.board[a]; s.board[a] = s.board[b]; s.board[b] = t; s.moves--; return true;
+  function take(s, id) { const c = s.board.indexOf(id); if (s.phase !== 'place' || c < 0) return false; s.board[c] = null; return true; }
+  function clearBoard(s) { if (s.phase !== 'place') return false; s.board = new Array(N).fill(null); return true; }
+  function rotate(s, id) { // ?rot=1 のときだけ（くらべる用）
+    if (!s.canRot || s.phase !== 'place' || s.hand.indexOf(id) < 0) return false;
+    s.cards[id].rot = (s.cards[id].rot + 1) & 3; return true;
   }
-  // ---- 置く前に見せる用（画面の「つながる」表示は、ここだけを使う。どれも derive をそのまま使う）
-  // type を cell に置いたら（同じ種類なら重ねたら）、どのマスとつながるか。
-  function linksIfPlaced(board, type, cell, st) {
-    const b = board.slice(), old = b[cell];
-    if (!(old && old.type === type)) b[cell] = mk(type); // 同じ種類に重ねるときは、いまのブロックのまま（レベルが上がるだけ）
-    return derive(b, st).LL[cell].slice(); // 数えるのは「効いている線」だけ
-  }
-  // 盤面の a のブロックを b と入れかえたら、動かしたブロックがどのマスとつながるか。
-  function linksIfSwapped(board, a, b, st) {
-    const c = board.slice(), t = c[a]; c[a] = c[b]; c[b] = t;
-    return c[b] ? derive(c, st).LL[b].slice() : [];
-  }
-  // 置く前に「数字を出すマス」は、ここ1か所で決める。
-  //   ① 空きマスと、がれきのマスで、つながる所。
-  //   ② ①が1つもないとき（満杯のときなど）だけ、札のあるマス（置きかえ・重ね）で つながる所。
-  //   札の上にいつも数字を出すと、画面の情報が多くなりすぎた（本人の感想 2026-11-13）ので、①があるときは出さない。
-  function pickSpots(board, countAt, skip) {
-    const open = [], rest = [];
-    for (let i = 0; i < N; i++) {
-      if (skip(i)) continue;
-      const n = countAt(i); if (n <= 0) continue;
-      (!board[i] || board[i].type === 'rubble' ? open : rest).push({ cell: i, n });
-    }
-    return open.length ? open : rest;
-  }
-  // type を置くと つながるマスと、その数。[{ cell, n }]
-  function linkSpots(board, type, st) {
-    return pickSpots(board, i => linksIfPlaced(board, type, i, st).length,
-      i => { const b = board[i]; return !!b && b.type === type && b.lv >= MAXLV; }); // Lv3 の同じ種類には、もう重ねられない
-  }
-  // 盤面の a のブロックを動かすと つながるマスと、その数。封印中のブロックは、動かしても つながらない。
-  function swapSpots(board, a, st) {
-    if (!isActive(board[a])) return [];
-    return pickSpots(board, i => linksIfSwapped(board, a, i, st).length, i => i === a);
-  }
-  // 光らせる相手：数字のマスのどれかに置いた（動かした）とき、本当に つながる札のマス。
-  // works の表だけで決めない（表では合っていても、盾のない反射と貫通のように、つながらない組がある）。
-  function linkMates(board, type, st) {
-    const set = {};
-    for (const sp of linkSpots(board, type, st)) for (const j of linksIfPlaced(board, type, sp.cell, st)) set[j] = 1;
-    return Object.keys(set).map(Number).sort((x, y) => x - y);
-  }
-  function swapMates(board, a, st) {
-    const set = {};
-    for (const sp of swapSpots(board, a, st)) for (const j of linksIfSwapped(board, a, sp.cell, st)) if (j !== a) set[j] = 1;
-    return Object.keys(set).map(Number).sort((x, y) => x - y);
-  }
-  // type を いま置くなら、いちばん多くて何本つながるか（置けるマス全部の中で。置きかえ・重ねもふくむ）。
-  // 棚の札を「いまは相手がいない（点線）」にするかどうかに使う。
-  function bestLinks(board, type, st) {
-    let m = 0;
-    for (let i = 0; i < N; i++) {
-      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // Lv3 の同じ種類には、もう重ねられない
-      m = Math.max(m, linksIfPlaced(board, type, i, st).length);
-    }
-    return m;
-  }
-
-  // type を いま置いたら働くマスが、1つでもあるか（棚の札を「いま置いても働かない」点線にするかどうか）。
-  // 「つながるか」ではなく「働くか」で決める（蓄積や盾のように、ひとりで働くものがあるため）。
-  function canWork(board, type, st) {
-    for (let i = 0; i < N; i++) {
-      const b = board[i]; if (b && b.type === type && b.lv >= MAXLV) continue; // Lv3 の同じ種類には、もう重ねられない
-      const c = board.slice(); if (!(b && b.type === type)) c[i] = mk(type);
-      if (derive(c, st).live[i]) return true;
-    }
-    return false;
-  }
-
-  // キープ：棚のブロックを1個とっておく（手数を使わない）
-  function toKeep(s, idx) {
-    if (s.phase !== 'place' || !s.shop[idx]) return false;
-    const t = s.keep; s.keep = s.shop[idx]; s.shop[idx] = t; return true;
+  // 置く前に見せる用：id を cell に置いたら、そのブロックに はまる所（効く・効かない）
+  function linksIfPut(s, id, cell) {
+    const c = cloneState(s); if (!put(c, id, cell)) return null;
+    const d = derive(c);
+    return d.links.filter(ln => ln.from === cell || ln.to === cell);
   }
 
   // ---------------------------------------------------------------- ターンの発動
-  // 順番： 1 盾をはる → 2 攻撃ブロックが左上から順に発動 → 3 敵の行動 → 4 ターンの終わり
-  function resolve(s) {
-    const ev = []; const board = s.board, e = s.e, p = s.p, st = s.stats;
-    const d = derive(board);
+  // 順番： 1 防御（盾をはる）→ 2 攻撃ブロックと「自分で働く能力ブロック」が左上から順に → 3 敵の行動 → 4 ターンの終わり
+  // opt.sim … ボットの先読み用。次のターンの準備（引く・予告）をしない。
+  function resolve(s, opt) {
+    const ev = []; const e = s.e, p = s.p, st = s.stats;
+    const d = derive(s), blk = d.blk;
     let over = false, shocked = false, froze = false, hits = 0, evadeLeft = e.evade;
-    const snap = o => { o.eh = Math.max(0, e.hp); o.ph = Math.max(0, p.hp); o.sh = p.shield; o.es = [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen]; o.pc = p.curse; ev.push(o); return o; };
+    const snap = o => { o.eh = Math.max(0, e.hp); o.ph = Math.max(0, p.hp); o.sh = p.shield; o.es = [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen]; o.pc = p.curse; o.ch = p.charge; ev.push(o); return o; };
     const credit = (k, n) => { if (n > 0) { st.dealt[k] = (st.dealt[k] || 0) + n; st.total += n; } };
     const hurtEnemy = n => { e.hp -= n; if (e.hp <= 0 && !over) { over = true; s.phase = 'won'; } };
     const hurtPlayer = n => { p.hp -= n; st.taken += n; if (p.hp <= 0 && !over) { over = true; s.phase = 'lost'; } };
+    const healPlayer = n => { const h = Math.max(0, Math.min(p.max - p.hp, n)); p.hp += h; st.healed += h; return h; };
 
-    function hit(a, base, kind, src) {
-      if (over || hits >= HIT_CAP) return;
+    // ヒット1回。 cell … 打ったブロック、 src … もとになったブロック（追撃なら追撃ブロック）
+    function hit(cell, base, kind, src, pierce, leech, bonus) {
+      if (over || hits >= HIT_CAP) return false;
       hits++;
-      if (evadeLeft > 0) { evadeLeft--; snap({ t: 'hit', cell: a.cell, src, kind, dodged: true, dmg: 0 }); return; }
+      if (evadeLeft > 0) { evadeLeft--; snap({ t: 'hit', cell, src, kind, dodged: true, dmg: 0 }); return false; }
+      const ch = p.charge; p.charge = 0;
       const fireB = e.fire;
-      let dmg = Math.max(0, rd(base)) + fireB, armorCut = 0, guardCut = 0;
-      if (a.pierce) dmg += a.pierceBonus;
+      let dmg = Math.max(0, rd(base)) + ch + fireB, armorCut = 0, guardCut = 0;
+      if (pierce) dmg += bonus || 0;
       else {
         armorCut = Math.min(dmg, e.armor); dmg -= armorCut;
         guardCut = Math.min(dmg, e.guard); e.guard -= guardCut; dmg -= guardCut;
       }
-      const f = Math.min(fireB, dmg);
-      credit('fire', f); credit(kind === 'chase' ? 'chase' : a.type, dmg - f);
+      const f = Math.min(fireB, dmg), c2 = Math.min(ch, dmg - f);
+      credit('fire', f); credit('charge', c2); credit(kind === 'chase' ? 'chase' : blk[cell].type, dmg - f - c2);
       hurtEnemy(dmg);
       let heal = 0;
-      if (a.leech > 0 && dmg > 0 && p.hp > 0) { heal = Math.min(p.max - p.hp, rd(dmg * a.leech)); p.hp += heal; st.healed += heal; }
-      const el = a.elem;
-      e.poison += el.poison; if (el.fire > e.fire) e.fire = el.fire; e.ice += el.ice; e.shock += el.shock;
-      snap({ t: 'hit', cell: a.cell, src, kind, dmg, fire: f, armorCut, guardCut, heal, add: el });
-      if (!over && a.consume > 0 && e.poison > 0) {
-        const n = e.poison, cd = rd(n * a.consume); e.poison = 0;
-        credit('consume', cd); hurtEnemy(cd); snap({ t: 'consume', cell: a.cell, cells: a.consumeCells, n, dmg: cd });
-      }
-      if (!over && !shocked && e.shock >= SHOCK_AT) {
-        shocked = true; e.shock -= SHOCK_AT; credit('shock', SHOCK_DMG); hurtEnemy(SHOCK_DMG); s.bonus = 1;
-        snap({ t: 'shock', dmg: SHOCK_DMG });
-      }
-      if (!over && !froze && !e.frozen && e.ice >= FREEZE_AT) { froze = true; e.ice -= FREEZE_AT; e.frozen = 1; snap({ t: 'freeze' }); }
+      if (leech > 0 && dmg > 0 && p.hp > 0) heal = healPlayer(rd(dmg * leech));
+      snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, armorCut, guardCut, heal });
       if (!over && e.thorns > 0) {
         let t = e.thorns; const sc = Math.min(p.shield, t); p.shield -= sc; t -= sc; st.blocked += sc;
         if (t > 0) hurtPlayer(t);
         snap({ t: 'thorn', dmg: t, shield: sc });
       }
+      return true;
     }
-    function fire(a, mult, mode, src) {
+    // 能力を1回（times 回）使う。 at … 働いたブロック（攻撃・防御・自分）
+    function use(g, at) {
+      for (let k = 0; k < g.times && !over; k++) {
+        if (g.kind === 'poison') { e.poison += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt }); }
+        else if (g.kind === 'fire') { e.fire += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt }); }
+        else if (g.kind === 'ice') {
+          e.ice += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt });
+          if (!froze && !e.frozen && e.ice >= FREEZE_AT) { froze = true; e.ice -= FREEZE_AT; e.frozen = 1; snap({ t: 'freeze' }); }
+        } else if (g.kind === 'shock') {
+          e.shock += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt });
+          if (!shocked && e.shock >= SHOCK_AT) {
+            shocked = true; e.shock -= SHOCK_AT; credit('shock', SHOCK_DMG); hurtEnemy(SHOCK_DMG); s.drawBonus = 1;
+            snap({ t: 'shock', dmg: SHOCK_DMG });
+          }
+        } else if (g.kind === 'regen') { const h = healPlayer(g.amt); snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: h }); }
+        else if (g.kind === 'charge') { p.chargeNext += g.amt; snap({ t: 'gift', kind: g.kind, cell: g.cell, at, n: g.amt }); }
+        else if (g.kind === 'consume') {
+          const n = e.poison, cd = rd(n * g.amt); e.poison = 0;
+          credit('consume', cd); if (cd > 0) hurtEnemy(cd); snap({ t: 'consume', cell: g.cell, at, n, dmg: cd });
+        } else if (g.kind === 'chase') {
+          const kinds = (e.poison > 0) + (e.fire > 0) + (e.ice > 0) + (e.shock > 0);
+          hit(at, g.amt * (1 + kinds), 'chase', g.cell, g.pierce, 0, g.bonus);
+        }
+      }
+    }
+    function fire(a, mult, mode) {
       if (over) return;
-      snap({ t: 'fire', cell: a.cell, mode, mult, src });
-      for (let i = 0; i < a.hits && !over; i++) hit(a, (a.dmg + (i === 0 ? a.charge + p.shield * a.convert : 0)) * mult, 'atk', a.cell);
-      for (const q of a.chase) for (let j = 0; j < q.hits && !over; j++) {
-        const kinds = (e.poison > 0) + (e.fire > 0) + (e.ice > 0) + (e.shock > 0);
-        hit(a, q.base * (1 + kinds) * mult, 'chase', q.cell);
+      snap({ t: 'fire', cell: a.cell, mode, mult });
+      for (let i = 0; i < a.hits && !over; i++) {
+        const ok = hit(a.cell, (a.dmg + (i === 0 ? p.shield * a.convert : 0)) * mult, 'atk', a.cell, a.pierce, a.leech, a.bonus);
+        if (ok) for (const g of a.gifts) { if (over) break; use(g, a.cell); }
       }
     }
 
-    // 1 盾
+    // 1 防御
     if (d.shieldGain > 0) { p.shield += d.shieldGain; snap({ t: 'shield', add: d.shieldGain, cells: d.shieldCells }); }
-    // 2 攻撃（左上から順）
-    for (const a of d.atk) {
+    // 2 攻撃と、自分で働く能力（左上から順）
+    for (const c of d.order) {
       if (over) break;
-      fire(a, 1, 'main', a.cell);
-      for (const r of a.refire) fire(a, r.mult, 're', r.cell);
+      const X = blk[c];
+      if (X.fam === 'atk') fire(X.atk, 1, 'main');
+      else { snap({ t: 'solo', cell: c }); use(X.soloGift, c); for (const g of X.got) { if (over) break; use(g, c); } }
     }
     // 3 敵の行動
+    let attacked = false;
     if (!over) {
       e.guard = 0;
       const it = s.intent; snap({ t: 'eact', label: it.label });
-      const cUses = {}; let attacked = false;
+      const cUses = {}; let dodgeLeft = d.dodge;
       for (const part of it.parts) {
         if (over) break;
         if (part.k === 'atk') {
-          let absorbed = 0; attacked = true;
+          let prevented = 0; attacked = true;
           for (let h = 0; h < part.hits && !over; h++) {
-            if (d.dodgeRest > 0 && p.dodgeCd === 0) { p.dodgeCd = d.dodgeRest + 1; snap({ t: 'ehit', dodged: true, cells: d.dodgeCells, dmg: 0, raw: part.dmg }); }
+            if (dodgeLeft > 0) { dodgeLeft--; snap({ t: 'ehit', dodged: true, cells: d.dodgeCells, dmg: 0, raw: part.dmg }); }
             else {
               let dmg = part.dmg;
               const ic = e.frozen ? dmg - Math.ceil(dmg / 2) : 0; dmg -= ic;
               const tc = Math.min(dmg, d.tough); dmg -= tc;
-              const sc = Math.min(p.shield, dmg); p.shield -= sc; dmg -= sc; absorbed += sc;
+              const sc = Math.min(p.shield, dmg); p.shield -= sc; dmg -= sc; prevented += tc + sc;
               st.blocked += ic + tc + sc;
               if (dmg > 0) hurtPlayer(dmg);
               snap({ t: 'ehit', dmg, raw: part.dmg, ice: ic, tough: tc, shield: sc });
             }
-            if (!over) for (const a of d.atk) for (const c of a.counter) {
-              const u = cUses[c.cell] || 0;
-              if (u < COUNTER_MAX && !over) { cUses[c.cell] = u + 1; fire(a, c.mult, 'counter', c.cell); }
+            // 防御ブロックが受け取った能力：敵のヒット1回ごとに
+            for (const x of d.defGifts) { if (over) break; use(x.g, x.at); }
+            // 反撃
+            if (!over) for (const a of d.atk) if (a.counter) {
+              const u = cUses[a.cell] || 0;
+              if (u < COUNTER_MAX * a.counter && !over) { cUses[a.cell] = u + 1; fire(a, a.counterMult, 'counter'); }
             }
           }
-          if (!over && absorbed > 0 && d.reflect > 0) {
-            let r = rd(absorbed * d.reflect);
-            if (!d.reflectPierce) r -= Math.min(r, e.armor);
+          if (!over && prevented > 0 && d.reflect > 0) {
+            const r = rd(prevented * d.reflect);
             credit('mirror', r); hurtEnemy(r); snap({ t: 'reflect', dmg: r, cells: d.mirrorCells });
           }
+          if (!over && prevented > 0 && d.leechDef > 0) { const h = healPlayer(rd(prevented * d.leechDef)); if (h > 0) snap({ t: 'pheal', n: h }); }
         } else if (part.k === 'guard') { e.guard = part.n; snap({ t: 'guard', n: part.n }); }
-        else if (part.k === 'seal') {
-          const done = [];
-          for (const c of it.cells.seal) if (board[c] && board[c].type !== 'rubble') { board[c].sealed = part.dur + 1; done.push(c); }
-          snap({ t: 'seal', cells: done });
-        } else if (part.k === 'destroy') {
-          const done = [];
-          for (const c of it.cells.destroy) if (board[c]) { board[c] = null; done.push(c); }
-          snap({ t: 'destroy', cells: done, aimed: it.cells.destroy });
-        } else if (part.k === 'rubble') {
-          const done = [];
-          for (const c of it.cells.rubble) if (!board[c]) { board[c] = mk('rubble'); done.push(c); }
-          snap({ t: 'rubble', cells: done, aimed: it.cells.rubble });
-        } else if (part.k === 'cleanse') { e.poison = e.fire = e.ice = e.shock = 0; e.frozen = 0; snap({ t: 'cleanse' }); }
+        else if (part.k === 'seal') { s.sealNext += part.n; snap({ t: 'seal', n: part.n }); }
+        else if (part.k === 'destroy') {
+          const cells = destroyTargets(d, part.n), ids = cells.map(c => blk[c].id);
+          for (const id of ids) s.gone.push(id);
+          snap({ t: 'destroy', cells, ids });
+        } else if (part.k === 'rubble') { s.blockNext = it.cells.rubble.slice(); snap({ t: 'rubble', cells: s.blockNext }); }
+        else if (part.k === 'cleanse') { e.poison = e.fire = e.ice = e.shock = 0; e.frozen = 0; snap({ t: 'cleanse' }); }
         else if (part.k === 'curse') { p.curse += part.n; snap({ t: 'cursed', n: part.n }); }
-        else if (part.k === 'heal') { const n = Math.min(e.max - e.hp, part.n); e.hp += n; snap({ t: 'eheal', n }); }
       }
-      if (attacked) e.frozen = 0;
     }
     // 4 ターンの終わり
     if (!over && e.poison > 0) { const n = e.poison; credit('poison', n); hurtEnemy(n); snap({ t: 'tick', dmg: n }); }
     if (!over) {
-      const d3 = derive(board); // 封印や破壊のあとの盤面で数える
-      e.poison = Math.floor(e.poison * d3.keep.poison + 1e-9);
-      e.fire = Math.floor(e.fire * d3.keep.fire + 1e-9);
+      if (!d.sustain.poison) e.poison = Math.floor(e.poison / 2);
+      e.fire = d.sustain.fire ? Math.floor(e.fire * d.fireKeep) : 0;
+      e.frozen = 0;
       if (p.curse > 0) { const n = p.curse; hurtPlayer(n); p.curse--; snap({ t: 'curse', dmg: n }); }
-      if (!over) {
-        if (d3.regen > 0 && p.hp < p.max) { const n = Math.min(p.max - p.hp, d3.regen); p.hp += n; st.healed += n; snap({ t: 'regen', n, cells: d3.regenCells }); }
-        if (e.regen > 0 && e.hp < e.max) { const n = Math.min(e.max - e.hp, e.regen); e.hp += n; snap({ t: 'eregen', n }); }
-        for (const c of d3.chargeCells) board[c.cell].charge += c.gain;
-        p.shield = Math.floor(p.shield * d3.shieldKeep + 1e-9);
-        for (let i = 0; i < N; i++) { const b = board[i]; if (b && b.sealed > 0) b.sealed--; }
-        if (p.dodgeCd > 0) p.dodgeCd--;
-        e.si++;
-        beginTurn(s);
-        snap({ t: 'end' });
+    }
+    if (!over) {
+      if (e.regen > 0 && e.hp < e.max) { const n = Math.min(e.max - e.hp, e.regen); e.hp += n; snap({ t: 'eregen', n }); }
+      p.charge += p.chargeNext; p.chargeNext = 0;
+      p.shield = Math.floor(p.shield * d.shieldKeep);
+      // 手札を全部 捨て札へ。再発動のブロックは山札のいちばん上へ。破壊されたブロックは、この戦いから消える。
+      const keep = [];
+      for (const id of s.hand) {
+        if (s.gone.indexOf(id) >= 0) continue;
+        if (d.retain.indexOf(id) >= 0) keep.push(id); else s.discard.push(id);
       }
+      for (const id of keep) s.deck.push(id);
+      s.hand = []; s.board = new Array(N).fill(null); s.sealed = [];
+      e.si++;
+      if (!(opt && opt.sim)) beginTurn(s);
+      snap({ t: 'end' });
     }
     if (over) snap({ t: s.phase });
     return ev;
@@ -696,16 +639,78 @@
   function forecast(s) {
     if (s.phase !== 'place') return null;
     const c = cloneState(s); const t0 = c.stats.total, k0 = c.stats.taken, h0 = c.stats.healed;
-    resolve(c);
-    return { dealt: c.stats.total - t0, taken: c.stats.taken - k0, healed: c.stats.healed - h0, eHp: Math.max(0, c.e.hp), pHp: Math.max(0, c.p.hp), won: c.phase === 'won', lost: c.phase === 'lost' };
+    resolve(c, { sim: true });
+    return { dealt: c.stats.total - t0, taken: c.stats.taken - k0, healed: c.stats.healed - h0, eHp: Math.max(0, c.e.hp), pHp: Math.max(0, c.p.hp),
+             shield: c.p.shield, poison: c.e.poison, charge: c.p.charge, won: c.phase === 'won', lost: c.phase === 'lost' };
+  }
+
+  // ---------------------------------------------------------------- 5連戦（デッキを育てる）
+  // run.phase: 'fight' | 'reward'（ブロックをえらぶ）| 'remove'（1個はずす）| 'won' | 'lost'
+  function newRun(seed, o) {
+    o = o || {};
+    const run = { rs: ((seed | 0) || 1) ^ 0x5bd1e995, seed: (seed | 0) || 1, stage: 0, hp: MAXHP, max: MAXHP, canRot: !!o.rot, handSize: o.hand || HAND,
+                  deck: START_DECK.map(c => ({ type: c[0], rot: c[1] })), order: [], phase: 'fight', fight: null, reward: null, lv: {}, added: [], removed: [], ups: [] };
+    run.order = o.order || shuffle(run, ENEMY_IDS.slice());
+    startFight(run);
+    return run;
+  }
+  function startFight(run) {
+    run.fight = newFight({ enemyId: run.order[run.stage], stage: run.stage, deck: run.deck, lv: Object.assign({}, run.lv), seed: run.seed * 31 + run.stage * 7919 + 17, hp: run.hp, rot: run.canRot, hand: run.handSize });
+    run.phase = 'fight';
+  }
+  // ごほうび3つ。もっている種類は、半分の確率で「レベルアップ」（その種類ぜんぶが強くなる）になる。それ以外は新しいブロック（向きは でたらめ）。
+  function rollReward(run) {
+    return pick(run, TYPES, 3).map(type => {
+      const rot = (rnd(run) * 4) | 0, own = run.deck.some(c => c.type === type), cur = lvOf(run.lv, type);
+      const up = own && cur < maxLv(type) && rnd(run) < 0.5;
+      return up ? { type, up: true, lv: cur + 1 } : { type, rot };
+    });
+  }
+  // 戦いが終わったら呼ぶ。勝ち：HP を少し回復して、ブロックをえらぶ画面へ（最後の戦いなら全部クリア）。
+  function finishFight(run) {
+    const f = run.fight; if (run.phase !== 'fight' || !f || (f.phase !== 'won' && f.phase !== 'lost')) return false;
+    if (f.phase === 'lost') { run.hp = 0; run.phase = 'lost'; return true; }
+    run.healed = Math.min(run.max - f.p.hp, HEAL_AFTER); run.hp = f.p.hp + run.healed;
+    if (run.stage >= STAGES - 1) { run.phase = 'won'; return true; }
+    run.phase = 'reward'; run.reward = { round: 1, options: rollReward(run) };
+    return true;
+  }
+  // idx … えらんだ番号（0〜2）。-1 … えらばない。
+  function pickReward(run, idx) {
+    if (run.phase !== 'reward') return false;
+    const o = run.reward.options[idx];
+    if (o && o.up) { run.lv[o.type] = o.lv; run.ups.push(o.type); }
+    else if (o) { run.deck.push({ type: o.type, rot: o.rot }); run.added.push(o.type); }
+    if (run.reward.round < PICKS) { run.reward = { round: run.reward.round + 1, options: rollReward(run) }; return true; }
+    run.reward = null; run.phase = 'remove';
+    return true;
+  }
+  // ごほうびのあと、デッキからブロックを1個 はずせる。 idx … デッキの中の番号。-1 … はずさない。
+  function removeCard(run, idx) {
+    if (run.phase !== 'remove') return false;
+    if (idx >= 0 && idx < run.deck.length && run.deck.length > HAND) { run.removed.push(run.deck[idx].type); run.deck.splice(idx, 1); }
+    run.stage++; startFight(run);
+    return true;
+  }
+  // デッキの中で、このブロックの凸が はまる凹の数（give）と、このブロックの凹に はまる凸の数（take）。えらぶ画面の めやす。
+  function fitCount(deck, card) {
+    const e = edges(card.type, card.rot); let give = 0, take = 0;
+    for (const c of deck) {
+      const x = edges(c.type, c.rot);
+      for (let sd = 0; sd < 4; sd++) {
+        if (e[sd] === 1 && x[(sd + 2) % 4] === -1) give++;
+        if (e[sd] === -1 && x[(sd + 2) % 4] === 1) take++;
+      }
+    }
+    return { give, take };
   }
 
   return {
-    W, H, N, MAXLV, SHOP, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, START_CELL,
-    B, TYPES, FAMS, STATUS_NAMES, ENEMIES, ENEMY_IDS, NEAR4, NEAR8,
-    needsLink, blockText, works, isActive, mk, derive, attackLines, intentLines, fmt, idleHint,
-    newGame, cloneState, beginTurn, makeIntent, srcType, placeKind, place, canSwap, swap, toKeep,
-    linksIfPlaced, linksIfSwapped, linkSpots, swapSpots, linkMates, swapMates, bestLinks, canWork,
+    W, H, N, HAND, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
+    B, TYPES, FAMS, FAM_HINT, KW, STATUS_NAMES, ENEMIES, ENEMY_IDS, START_DECK, NB, INNER,
+    blockText, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
+    newFight, cloneState, beginTurn, makeIntent, cellOf, canPut, put, take, clearBoard, rotate, linksIfPut,
     resolve, endTurn, forecast,
+    newRun, startFight, finishFight, pickReward, removeCard, rollReward, fitCount,
   };
 });

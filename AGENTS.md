@@ -1,6 +1,6 @@
-# ツナガリ・ビルド（試作）
+# ツナガリ・ビルド（ジグソー版・試作2）
 
-作業の入口は [CLAUDE.md](CLAUDE.md)（ファイルの役割ときまり）と [REPORT.md](REPORT.md)（設計・確かめた結果・質問）。
+作業の入口は [CLAUDE.md](CLAUDE.md)（ファイルの役割ときまり）と [REPORT.md](REPORT.md)（設計・確かめた結果・質問）。前の版は `v1/` に残してある（くらべる用。直さない）。
 統括は本人。制作は Claude、独立レビューは Codex（2026-11-12 本人の指定）。dot は 2026-11-12 から使えない。担当と証拠の記録は REPORT.md と `reviews/` に書く（共通標準 v1.3）。`node tests.js`・`node check.js` の合格だけで全体の合格にしない（通常入力の通し確認は別工程）。
 
 公開は本人が決めた（2026-11-12）。公開先は https://usouso.github.io/tunagari/ （公開ずみ。main への push が1〜2分後に公開版になる）。`docs/game-development/` は公開リポジトリに入れていない（このPCの中だけのコピー。元は `DocumentsGameDevelopment`）。

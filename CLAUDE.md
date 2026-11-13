@@ -1,25 +1,29 @@
-# ツナガリ・ビルド（試作）
+# ツナガリ・ビルド（ジグソー版・試作2）
 
-敵の予告の「手数」だけブロックを置き、となり同士をつなげてスキルを育てる、ターン制バトルの試作。
+毎ターン 山札から7個引いたブロックを、ジグソーパズルのように盤面に組む、ターン制デッキ構築の試作。
+ブロックの辺に 凸・凹 があり、凸が凹に はまると、能力が 凸 → 凹 に わたる。5連戦で、勝つとブロックがもらえる。
 くわしい設計・確かめた結果・質問は [REPORT.md](REPORT.md)。
+前の版（つなげて育てる。5×5 の盤面）は `v1/` に そのまま残してある（くらべる用。記録は `v1/REPORT.md`）。**`v1/` の中は直さない。**
 
 ## ファイル
-- `rules.js` … ルール（計算だけ）。画面・ボット・テストが同じものを使う。ブロックの文と数字はここ1か所。
-- `botcore.js` … 自動で遊ぶ手の選び方（Node のボットと、画面の `?auto=1` が共用）。
+- `rules.js` … ルール（計算だけ）。画面・ボット・テストが同じものを使う。ブロックの文と数字・形（凸凹）はここ1か所。
+- `botcore.js` … 自動で遊ぶ置き方の選び方（Node のボットと、画面の `?auto=1` が共用）。
 - `ui.js` / `index.html` / `style.css` … 画面。ルールが返す出来事ログを再生するだけ。
-- `tests.js` … ブロックの文が文字どおりに動くかのテスト（`node tests.js`）。
-- `bot.js` … ビルドのかたよりを調べる集計（`node bot.js` / `picks` / `ban` / `growth`）。
+- `tests.js` … 凹凸の きまりと、ブロックの文が文字どおりに動くかのテスト（`node tests.js`）。
+- `bot.js` … ボットの集計（`node bot.js` / `stage` / `adapt` / `use` / `picks` / `rot` / `hand`）。結果は `evidence/`。
 - `check.js` … 画面の機械検査（ヘッドレスの Chrome。`node check.js`）。写真は `screenshots/`。
 - `server.js` … 確認用の小さなサーバー（127.0.0.1:8437）。`index.html` を直接開いても遊べる。
 - `review.js` … Codex に独立レビューを頼む（`node review.js` / `all` / `dry`）。結果は `reviews/` に残る。
+- `v1/` … 前の版の一式（ルール・画面・テスト・検査・写真・証拠・REPORT）。
 
 ## きまり
-- ルールを変えたら `node tests.js` と `node check.js` を通す。数字を変えたら `node bot.js` の表も見る。
-- 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `attackLines` / `intentLines` を使う）。
-- 演出用の CSS の class は `fx-` で始める。「つながる」表示の class は `lk-` で始める。
-- 線と点線の札は「いま効いているか」（`rules.js` の `derive` が出す `live` / `LL` / `liveLinks`）で決める。置く前の数字も同じ。
-- 画面に出す文字をふやすときは、`?auto=1` の検査結果の `screen`（見えている文字の数）を前後でくらべる。
-- ルールや画面を変えてコミットしたら、`node review.js` で Codex にレビューを頼む。指摘は読んで、`reviews/` のファイルの「受け取り」と REPORT.md の8章に書く。直したら、もう一度 `node review.js`（同じ指摘の直しと再テストは3回まで）。Codex のレビューは「コードと `node tests.js`」まで。画面と通常入力は別に確かめる。
+- ルールを変えたら `node tests.js` と `node check.js` を通す。数字を変えたら `node bot.js` の表も見る（`runs` の「ためして選ぶ」「でたらめに選ぶ」「取らない」の3行と、`adapt`）。
+- 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `summary` / `giftText` / `intentLines` / `destroyTargets` / `linksIfPut` を使う）。
+- 凸凹の「効く・効かない」は `rules.js` の `accepts` の表1つで決める。画面の印（色つきの凸＝効く、灰色に×＝効かない）も同じ表から出す。
+- 演出用の CSS の class は `fx-` で始める。「はまる所」の表示の class は `lk-` で始める。ブロックの絵の class は `pc-` で始める。
+- 札の上に字を足すときは、スマホ幅（マス71px）で重ならないかを `node check.js only=phone` で見る（レベルは字でなく点にしてある）。
+- くらべる用の切りかえ：`?rot=1`（ブロックを回せる）。決まったら消して、決めた方に固定する。
+- ルールや画面を変えてコミットしたら、`node review.js` で Codex にレビューを頼む。指摘は読んで、`reviews/` のファイルの「受け取り」と REPORT.md の「工程ごとの状態」に書く。直したら、もう一度 `node review.js`（同じ指摘の直しと再テストは3回まで）。Codex のレビューは「コードと `node tests.js`」まで。画面と通常入力は別に確かめる。
 - 公開：2026-11-12 に本人が「GitHub Pages で公開する」と決めた。公開先は https://usouso.github.io/tunagari/ （リポジトリ usouso/tunagari、branch は main。2026-11-12 に公開ずみ）。main への push が1〜2分後に公開版になる。
 - merge・課金・新規ログイン・アクセスやネットワークの拡大はしない（ユーザー全体の CLAUDE.md のとおり）。ほかのゲームの公開もしない。
 - `docs/game-development/` は公開リポジトリに入れていない（`.gitignore`）。このPCの中だけにあるコピーで、元は `DocumentsGameDevelopment`。

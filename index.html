@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ツナガリ・ビルド（試作）</title>
+<title>ツナガリ・ビルド（ジグソー版 試作）</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <header id="top">
-    <div id="logo">ツナガリ・ビルド <span class="sub">試作</span></div>
+    <div id="logo">ツナガリ・ビルド <span class="sub">ジグソー版</span></div>
     <div id="turn-label"></div>
+    <div id="route"></div>
     <div id="top-tools">
       <label class="tool">はやさ
         <select id="speed">
@@ -22,21 +23,30 @@
       </label>
       <label class="tool">音量 <input id="vol" type="range" min="0" max="100" value="25"></label>
       <button id="btn-help" class="btn ghost">あそびかた・ブロック一覧</button>
-      <button id="btn-quit" class="btn ghost">敵をえらぶ</button>
+      <button id="btn-quit" class="btn ghost">タイトルへ</button>
     </div>
   </header>
 
-  <!-- 敵をえらぶ画面 -->
+  <!-- タイトル -->
   <section id="title-screen">
     <div id="title-head">
-      <h1>ツナガリ・ビルド</h1>
-      <p>敵が動くまでの<strong>手数</strong>だけブロックを置ける。となりどうしを<strong>つなげて</strong>、スキルを育てよう。</p>
+      <h1>ツナガリ・ビルド <span class="sub">ジグソー版</span></h1>
+      <p>毎ターン <strong>7個</strong> 引いたブロックを、ジグソーパズルのように組む。<strong>凸</strong>が<strong>凹</strong>に はまると、能力が わたる。</p>
     </div>
-    <div id="enemy-cards"></div>
-    <p id="title-foot">敵のHPが0になれば勝ち。あなたのHPが0になると負け。ターン数の制限はない。</p>
+    <div id="title-rules"></div>
+    <div id="title-route">
+      <div id="title-route-label">こんどの5連戦の相手（この順に戦う）</div>
+      <div id="enemy-cards"></div>
+    </div>
+    <div id="title-actions">
+      <button id="btn-start" class="btn primary ready">5連戦を はじめる ▶</button>
+      <button id="btn-reroll" class="btn">相手の順を かえる</button>
+      <a id="link-v1" class="btn ghost" href="v1/">前の版（つなげて育てる）を あそぶ</a>
+    </div>
+    <p id="title-foot">敵のHPが0になれば勝ち。勝つと ブロックがもらえる。あなたのHPが0になると負け。相手のカードを押すと、その敵と1戦だけ れんしゅうできる。</p>
   </section>
 
-  <!-- 戦闘画面 -->
+  <!-- 戦闘 -->
   <section id="battle" hidden>
     <div id="left">
       <div id="enemy-box" class="panel">
@@ -52,8 +62,7 @@
         <div id="enemy-status" class="chips"></div>
       </div>
       <div id="intent-box" class="panel">
-        <div class="panel-title">敵の予告</div>
-        <div id="intent-moves"></div>
+        <div class="panel-title">敵の予告（このターンの行動）</div>
         <div id="intent-label"></div>
         <ul id="intent-lines"></ul>
       </div>
@@ -71,34 +80,31 @@
 
     <div id="center">
       <div id="guide"></div>
-      <div id="board-wrap">
-        <div id="board"></div>
-        <svg id="links" aria-hidden="true"></svg>
+      <div id="board-wrap"><div id="board"></div></div>
+      <div id="hand-wrap">
+        <div id="hand"></div>
       </div>
     </div>
 
     <div id="right">
-      <div id="shop-box" class="panel">
-        <div class="panel-title"><span>棚（毎ターン入れかわる）</span><span id="moves-label"></span></div>
-        <div id="shop-row">
-          <div id="shop"></div>
-          <div id="keep-wrap"><div id="keep" class="slot"></div><div id="keep-label">キープ<br>（手数なし）</div></div>
-        </div>
-      </div>
       <div id="forecast-box" class="panel">
         <div id="forecast"></div>
         <div id="actions">
-          <button id="btn-undo" class="btn">1手もどす</button>
+          <button id="btn-rot" class="btn" hidden>回す</button>
+          <button id="btn-clear" class="btn">ぜんぶ もどす</button>
           <button id="btn-end" class="btn primary">発動！</button>
         </div>
       </div>
       <div id="detail-box" class="panel">
         <div id="detail"></div>
       </div>
+      <div id="deck-box" class="panel">
+        <button id="btn-deck" class="btn ghost"></button>
+      </div>
     </div>
   </section>
 
-  <div id="result" class="overlay" hidden><div class="sheet" id="result-sheet"></div></div>
+  <div id="sheet" class="overlay" hidden><div class="sheet" id="sheet-body"></div></div>
   <div id="help" class="overlay" hidden><div class="sheet" id="help-sheet"></div></div>
   <div id="drag-ghost" hidden></div>
 </div>

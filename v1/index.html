@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ツナガリ・ビルド（前の版）</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div id="logo">ツナガリ・ビルド <span class="sub">試作</span></div>
+    <div id="turn-label"></div>
+    <div id="top-tools">
+      <label class="tool">はやさ
+        <select id="speed">
+          <option value="0.6">ゆっくり</option>
+          <option value="1" selected>ふつう</option>
+          <option value="2.5">はやい</option>
+          <option value="0">一瞬</option>
+        </select>
+      </label>
+      <label class="tool">音量 <input id="vol" type="range" min="0" max="100" value="25"></label>
+      <a class="btn ghost" href="../" style="text-decoration:none">新しい版（ジグソー）へ</a>
+      <button id="btn-help" class="btn ghost">あそびかた・ブロック一覧</button>
+      <button id="btn-quit" class="btn ghost">敵をえらぶ</button>
+    </div>
+  </header>
+
+  <!-- 敵をえらぶ画面 -->
+  <section id="title-screen">
+    <div id="title-head">
+      <h1>ツナガリ・ビルド</h1>
+      <p>敵が動くまでの<strong>手数</strong>だけブロックを置ける。となりどうしを<strong>つなげて</strong>、スキルを育てよう。</p>
+    </div>
+    <div id="enemy-cards"></div>
+    <p id="title-foot">敵のHPが0になれば勝ち。あなたのHPが0になると負け。ターン数の制限はない。</p>
+  </section>
+
+  <!-- 戦闘画面 -->
+  <section id="battle" hidden>
+    <div id="left">
+      <div id="enemy-box" class="panel">
+        <div id="enemy-head">
+          <div id="enemy-portrait"><span id="enemy-glyph"></span></div>
+          <div id="enemy-main">
+            <div id="enemy-name"></div>
+            <div class="bar enemy"><div class="fill" id="enemy-fill"></div><div class="bar-text" id="enemy-hp"></div></div>
+            <div id="enemy-dmg" class="dmg-slot"></div>
+          </div>
+        </div>
+        <div id="enemy-trait"></div>
+        <div id="enemy-status" class="chips"></div>
+      </div>
+      <div id="intent-box" class="panel">
+        <div class="panel-title">敵の予告</div>
+        <div id="intent-moves"></div>
+        <div id="intent-label"></div>
+        <ul id="intent-lines"></ul>
+      </div>
+      <div id="player-box" class="panel">
+        <div class="panel-title">あなた</div>
+        <div class="bar player"><div class="fill" id="player-fill"></div><div class="bar-text" id="player-hp"></div></div>
+        <div id="player-dmg" class="dmg-slot"></div>
+        <div id="player-status" class="chips"></div>
+      </div>
+      <div id="log-box" class="panel">
+        <div class="panel-title">きろく</div>
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <div id="center">
+      <div id="guide"></div>
+      <div id="board-wrap">
+        <div id="board"></div>
+        <svg id="links" aria-hidden="true"></svg>
+      </div>
+    </div>
+
+    <div id="right">
+      <div id="shop-box" class="panel">
+        <div class="panel-title"><span>棚（毎ターン入れかわる）</span><span id="moves-label"></span></div>
+        <div id="shop-row">
+          <div id="shop"></div>
+          <div id="keep-wrap"><div id="keep" class="slot"></div><div id="keep-label">キープ<br>（手数なし）</div></div>
+        </div>
+      </div>
+      <div id="forecast-box" class="panel">
+        <div id="forecast"></div>
+        <div id="actions">
+          <button id="btn-undo" class="btn">1手もどす</button>
+          <button id="btn-end" class="btn primary">発動！</button>
+        </div>
+      </div>
+      <div id="detail-box" class="panel">
+        <div id="detail"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="result" class="overlay" hidden><div class="sheet" id="result-sheet"></div></div>
+  <div id="help" class="overlay" hidden><div class="sheet" id="help-sheet"></div></div>
+  <div id="drag-ghost" hidden></div>
+</div>
+<script src="rules.js"></script>
+<script src="botcore.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
