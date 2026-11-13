@@ -178,6 +178,8 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
     eq('再発動は どれにでも書いてあるとおり（小さく効くではない）', [rf.links[0].ok, !!rf.links[0].weak, rf.retain.length], [true, false, 1]);
     const cl = go([], ab({ parts: [{ k: 'cleanse' }], e: { frail: 4, poison: 2, frozen: 1 } }));
     eq('脱皮の出来事に、消えた状態の名前が入る（きろくの文に使う）', cl.ev.find(x => x.t === 'cleanse').gone, ['毒', '弱る', '凍結']);
+    const it = R.intentLines({ parts: [{ k: 'cleanse' }] })[0].text;
+    ok('脱皮の予告の文に、本当に消えるもの（弱る・凍結も）が全部書いてある', ['毒', '炎', '氷', '雷', '弱る', '凍結'].every(w => it.indexOf(w) >= 0) && ['毒', '炎', '氷', '雷', '弱る', '凍結'].every(w => R.termText('cleanse').text.indexOf(w) >= 0), it);
   }
   eq('追撃は 弱るも「状態1種類」に数える（ひとり：1×(1+1) = 2）', go([['chase', 1, 1]], ab({ e: { frail: 2 } })).dealt, 2);
 }

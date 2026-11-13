@@ -95,6 +95,7 @@
     frail:  { name: '弱る', text: '敵のヒットのダメージが、1回ごとに 弱るの数だけ へる。ターンの終わりに半分にへる。' },
   };
   const STATUS_NAMES = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', frail: '弱る' };
+  const CLEANSE_TEXT = '毒・炎・氷・雷・弱る・凍結'; // 脱皮が消すもの（予告の文と ことばの説明が同じものを使う）
   // ことばの説明（画面で、ことばにカーソルをのせる・押すと出る）。画面はこれをそのまま出す。
   //   text(s) … s は いまの戦い（敵の数字を入れるため。なければ、数字なしの文）
   const num = (s, k) => (s && s.e && s.e[k] ? String(s.e[k]) : '');
@@ -116,7 +117,7 @@
     armor:   { name: '装甲', text: s => `ヒットのダメージを 1回ごとに${num(s, 'armor') || '決まった数だけ'}へらす（毒・毒消費・感電・反射は へらせない。貫通は無視する）。` },
     evade:   { name: '身かわし', text: s => `毎ターン、あなたの最初の${num(s, 'evade') ? num(s, 'evade') + 'ヒット' : '何ヒットか'}をよける。よけられたヒットでは、わたした能力は働かない。` },
     thorns:  { name: 'トゲ', text: s => `あなたのヒット1回ごとに、あなたが${num(s, 'thorns') || '少し'}ダメージ受ける（シールドで防げる）。` },
-    cleanse: { name: '脱皮', text: () => '敵の毒・炎・氷・雷・弱る・凍結を全部消す。' },
+    cleanse: { name: '脱皮', text: () => `敵の${CLEANSE_TEXT}を全部消す。` },
     rage:    { name: '怒り', text: () => '3周目から、敵の攻撃が強くなる。長引くほど危ない。' },
   };
   function termText(key, s) { const t = TERMS[key]; return t ? { name: t.name, text: t.text(s) } : null; }
@@ -413,7 +414,7 @@
       else if (p.k === 'seal') out.push({ k: 'seal', text: `封印 ${p.n}個（次のターン、手札の${p.n}個は はまらない）` });
       else if (p.k === 'destroy') out.push({ k: 'destroy', text: `破壊 ${p.n}個（いちばん多く はまっているブロックが、この戦いから消える）` });
       else if (p.k === 'rubble') out.push({ k: 'rubble', text: `がれき ${it.cells.rubble.length}マス（次のターン、そのマスに置けない）` });
-      else if (p.k === 'cleanse') out.push({ k: 'cleanse', text: '脱皮（敵の毒・炎・氷・雷を全部消す）' });
+      else if (p.k === 'cleanse') out.push({ k: 'cleanse', text: `脱皮（敵の${CLEANSE_TEXT}を全部消す）` });
       else if (p.k === 'curse') out.push({ k: 'curse', text: `呪い+${p.n}（ターンの終わりに呪いの数だけダメージ、1ずつへる）` });
     }
     if (!out.length) out.push({ k: 'none', text: '何もしない' });

@@ -21,7 +21,7 @@
     speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), seed: Q.has('seed') ? (+Q.get('seed') | 0) : ((Date.now() % 90000) + 1),
     turnSum: { e: 0, p: 0 }, gone: {},
   };
-  const CHECK = { rotates: 0, weakLinks: 0, faceGifts: 0, turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
+  const CHECK = { rotates: 0, weakLinks: 0, faceGifts: {}, turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
                   layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
   window.__check = CHECK; window.__G = G;
   window.addEventListener('error', e => CHECK.errors.push(String(e.message)));
@@ -434,7 +434,7 @@
         sfx('hit', e.dmg); return 230;
       }
       case 'gift': {
-        if (e.src && e.src !== e.kind) CHECK.faceGifts++; // 攻め・守り版で、もう1つの顔（弱る・たまり）が働いた
+        if (e.src && e.src !== e.kind) CHECK.faceGifts[e.kind] = (CHECK.faceGifts[e.kind] || 0) + 1; // 攻め・守り版で、もう1つの顔（弱る・たまり）が働いた（種類ごと）
         fxCell(e.cell);
         const nm = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', regen: 'HP', charge: 'たまり', frail: '弱る' }[e.kind];
         if (e.kind === 'regen') { if (e.n > 0) slot('#player-dmg', `+${e.n}`, '回復', 'heal'); else return 60; } // HPが満タンのときは、きろくに書かない

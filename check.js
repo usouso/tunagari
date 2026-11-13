@@ -100,7 +100,7 @@ async function main() {
       if (c.early && !(k.result && k.result.lastAct === null && /敵が動く前に負けた/.test(k.result.lastText || ''))) bad.push(`敵が動く前に負けたのに、負けの画面の文がちがう（${k.result ? k.result.lastText : ''}）`);
       if (c.lose && !c.early && !(k.result && k.result.lastAct && (k.result.lastText || '').indexOf('さいごの敵の行動：' + k.result.lastAct) >= 0)) bad.push(`負けの画面に「さいごの敵の行動」が出ていない（${k.result ? k.result.lastText : ''}）`);
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
-      if (c.abil && !(k.faceGifts > 0)) bad.push('攻め・守り版なのに、弱る・たまり（もう1つの顔）が1回も働かなかった');
+      if (c.abil && !(k.faceGifts && k.faceGifts.frail > 0 && k.faceGifts.charge > 0)) bad.push(`攻め・守り版なのに、弱る（毒の守り）と たまり（再生の攻め）の両方が働かなかった（${JSON.stringify(k.faceGifts)}）`);
       total.weakLinks = (total.weakLinks || 0) + (k.weakLinks || 0);
       if (c.rotate && !(k.rotateScene && k.rotateScene.ok)) bad.push('回す操作の場面が最後まで行かなかった');
       if (c.play && !c.lose && !(k.rotates > 0)) bad.push('通しで、もう一度押して回す操作が1回も起きなかった');
