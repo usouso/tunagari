@@ -2,7 +2,7 @@
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
  * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?rot=1（ブロックを回せる。くらべる用）
  *      ?hp=数（れんしゅうを そのHPで始める。検査用）
- *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck &scene=thorn（攻撃を1個だけ置く）
+ *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）
  */
 (function () {
   'use strict';
@@ -20,7 +20,7 @@
     speed: Q.has('speed') ? +Q.get('speed') : (AUTO ? 0 : 1), seed: Q.has('seed') ? (+Q.get('seed') | 0) : ((Date.now() % 90000) + 1),
     turnSum: { e: 0, p: 0 }, gone: {},
   };
-  const CHECK = { turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, screens: {},
+  const CHECK = { turns: 0, fights: 0, mismatches: [], errors: [], done: false, stopped: false, result: null, linkChecks: 0, spotChecks: 0, tipChecks: 0, tipSeen: {}, screens: {},
                   layout: { samples: 0, overlaps: 0, offscreen: 0, clipped: 0, pageScroll: 0, notes: [] } };
   window.__check = CHECK; window.__G = G;
   window.addEventListener('error', e => CHECK.errors.push(String(e.message)));
@@ -79,7 +79,7 @@
     h += '</div>';
     if (X && X.ord) h += `<span class="ord">${X.ord}</span>`;
     if (o.lv > 1) h += `<span class="lv" data-lv="${o.lv}">${'<i></i>'.repeat(o.lv)}</span>`; // レベルは点の数（字にすると、小さい札で ほかの字に重なった）
-    if (o.mark) h += `<span class="mark ${o.mark[0]}">${o.mark[1]}</span>`;
+    if (o.mark) h += `<span class="mark ${o.mark[0]}" data-tip="${o.mark[0]}">${o.mark[1]}</span>`;
     p.innerHTML = h;
     if (sum && sum.idle) p.classList.add('idle');
     if (sum && sum.gives) p.classList.add('gives');
@@ -90,6 +90,26 @@
   function miniEl(card, lv, cls) { const m = el('div', 'mini' + (cls ? ' ' + cls : '')); m.appendChild(pieceEl(card, { lv, name: false })); return m; }
 
   const D = () => (G.busy ? G.pre : G.s); // いま画面に出す状態（演出中は発動前の写し）
+  // ------------------------------------------------------------ ことばの説明（のせる・押すと出る）。文は rules.js の TERMS
+  const TIP_RE = new RegExp(R.TERM_WORDS.map(w => w[0]).join('|'), 'g'), TIP_KEY = {}; for (const w of R.TERM_WORDS) TIP_KEY[w[0]] = w[1];
+  // 文（タグの入っていない文）の中の ことばを、説明つきの印にする
+  const tipify = text => String(text).replace(TIP_RE, m => `<span class="tip" data-tip="${TIP_KEY[m]}">${m}</span>`);
+  let tipOn = null; // いま出している説明の もとの部品
+  function showTip(elm) {
+    const box = $('#tip');
+    if (!elm) { if (tipOn) { tipOn = null; box.hidden = true; } return; }
+    const key = elm.dataset.tip; if (elm === tipOn && box.dataset.key === key) return;
+    const t = R.termText(key, G.s ? D() : null); if (!t) { tipOn = null; box.hidden = true; return; }
+    tipOn = elm; box.dataset.key = key; box.innerHTML = `<b>${t.name}</b>${t.text}`; box.hidden = false;
+    const r = elm.getBoundingClientRect(), w = box.offsetWidth, h = box.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    const top = r.bottom + 6 + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 6) : r.bottom + 6;
+    box.style.left = left + 'px'; box.style.top = top + 'px';
+  }
+  const tipAt = target => showTip(target && target.closest ? target.closest('[data-tip]') : null);
+  document.addEventListener('pointermove', ev => { if (!drag) tipAt(ev.target); });
+  document.addEventListener('pointerdown', ev => tipAt(ev.target)); // 指で押したときも出す。ほかの所を押すと消える
+  window.addEventListener('scroll', ev => { if (ev.target === document) showTip(null); }, true); // ページを動かしたら消す（きろくの中のスクロールでは消さない）
   const num = (k, real) => (G.view ? G.view[k] : real);
   const lvOf = type => R.lvOf(D() ? D().lv : (G.run ? G.run.lv : {}), type);
 
@@ -110,7 +130,7 @@
     const box = $('#enemy-cards'); box.innerHTML = '';
     previewOrder().forEach((id, i) => {
       const e = R.ENEMIES[id];
-      const c = el('button', 'ecard', `<div class="etop"><div class="eg">${e.g}</div><div><div class="eo">${i + 1}戦目</div><div class="en">${e.name}</div></div></div><div class="et">${e.trait}</div><div class="ego">押すと 1戦だけ れんしゅう</div>`);
+      const c = el('button', 'ecard', `<div class="etop"><div class="eg">${e.g}</div><div><div class="eo">${i + 1}戦目</div><div class="en">${e.name}</div></div></div><div class="et">${tipify(e.trait)}</div><div class="ego">押すと 1戦だけ れんしゅう</div>`);
       c.addEventListener('click', () => startOne(id, 0));
       box.appendChild(c);
     });
@@ -134,7 +154,7 @@
     $('#btn-rot').hidden = !ROT;
     $('#log').innerHTML = ''; $('#enemy-dmg').innerHTML = ''; $('#player-dmg').innerHTML = '';
     const e = R.ENEMIES[G.s.enemyId];
-    $('#enemy-glyph').textContent = e.g; $('#enemy-name').textContent = e.name; $('#enemy-trait').textContent = e.trait;
+    $('#enemy-glyph').textContent = e.g; $('#enemy-name').textContent = e.name; $('#enemy-trait').innerHTML = tipify(e.trait);
     log('lt', `${G.mode === 'run' ? (G.s.stage + 1) + '戦目 ' : ''}${e.name}　ターン 1`);
     CHECK.fights++;
     renderAll();
@@ -142,7 +162,7 @@
 
   // ------------------------------------------------------------ 戦闘の画面
   function log(cls, text) { const l = $('#log'); l.appendChild(el('div', cls, text)); l.scrollTop = l.scrollHeight; }
-  function chip(cls, text) { return `<span class="chip ${cls}">${text}</span>`; }
+  function chip(cls, text, tip) { return `<span class="chip ${cls}"${tip ? ` data-tip="${tip}"` : ''}>${text}</span>`; }
   function renderTop() {
     const s = D();
     $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}`;
@@ -153,22 +173,22 @@
     const s = D(), e = s.e, hp = num('eh', Math.max(0, e.hp)), es = G.view ? G.view.es : [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen];
     $('#enemy-fill').style.width = (hp / e.max * 100) + '%'; $('#enemy-hp').textContent = `${hp} / ${e.max}`;
     let h = '';
-    if (es[0]) h += chip('poison', `毒 ${es[0]}`); if (es[1]) h += chip('fire', `炎 ${es[1]}`);
-    if (es[2]) h += chip('ice', `氷 ${es[2]}/${R.FREEZE_AT}`); if (es[3]) h += chip('shock', `雷 ${es[3]}/${R.SHOCK_AT}`);
-    if (es[5]) h += chip('ice', '凍結'); if (es[4]) h += chip('guard', `結界 ${es[4]}`);
+    if (es[0]) h += chip('poison', `毒 ${es[0]}`, 'poison'); if (es[1]) h += chip('fire', `炎 ${es[1]}`, 'fire');
+    if (es[2]) h += chip('ice', `氷 ${es[2]}/${R.FREEZE_AT}`, 'ice'); if (es[3]) h += chip('shock', `雷 ${es[3]}/${R.SHOCK_AT}`, 'shock');
+    if (es[5]) h += chip('ice', '凍結', 'frozen'); if (es[4]) h += chip('guard', `結界 ${es[4]}`, 'guard');
     $('#enemy-status').innerHTML = h || chip('none', '状態なし');
   }
   function renderIntent() {
     const it = D().intent; if (!it) return;
-    $('#intent-label').innerHTML = it.label + (it.rage ? '<span class="rage">怒り</span>' : '');
-    $('#intent-lines').innerHTML = R.intentLines(it).map(l => `<li class="${l.k}">${l.text}</li>`).join('');
+    $('#intent-label').innerHTML = it.label + (it.rage ? '<span class="rage tip" data-tip="rage">怒り</span>' : '');
+    $('#intent-lines').innerHTML = R.intentLines(it).map(l => `<li class="${l.k}">${tipify(l.text)}</li>`).join('');
   }
   function renderPlayer() {
     const s = D(), p = s.p, hp = num('ph', Math.max(0, p.hp));
     $('#player-fill').style.width = (hp / p.max * 100) + '%'; $('#player-hp').textContent = `${hp} / ${p.max}`;
     const sh = num('sh', p.shield), cu = num('pc', p.curse), ch = num('ch', p.charge);
     let h = '';
-    if (sh) h += chip('shield', `シールド ${sh}`); if (cu) h += chip('curse', `呪い ${cu}`); if (ch) h += chip('charge', `たまり ${ch}`);
+    if (sh) h += chip('shield', `シールド ${sh}`, 'shield'); if (cu) h += chip('curse', `呪い ${cu}`, 'curse'); if (ch) h += chip('charge', `たまり ${ch}`, 'charge');
     $('#player-status').innerHTML = h || chip('none', '状態なし');
   }
   const cellEl = i => $(`#board .cell[data-cell="${i}"]`);
@@ -181,8 +201,8 @@
     for (let i = 0; i < R.N; i++) {
       const c = el('div', 'cell'); c.dataset.cell = i;
       const id = s.board[i];
-      if (s.blocked.indexOf(i) >= 0) { c.classList.add('blocked'); c.appendChild(el('span', 'tag', 'がれき')); }
-      else if (id == null && nextRub.indexOf(i) >= 0) { c.classList.add('next-rubble'); c.appendChild(el('span', 'tag', '次 がれき')); }
+      if (s.blocked.indexOf(i) >= 0) { c.classList.add('blocked'); const tg = el('span', 'tag', 'がれき'); tg.dataset.tip = 'rubble'; c.appendChild(tg); }
+      else if (id == null && nextRub.indexOf(i) >= 0) { c.classList.add('next-rubble'); const tg = el('span', 'tag', '次 がれき'); tg.dataset.tip = 'rubble'; c.appendChild(tg); }
       if (id != null && !G.gone[id]) {
         const card = s.cards[id], sealed = s.sealed.indexOf(id) >= 0;
         const p = pieceEl(card, { d, cell: i, lv: lvOf(card.type), sealed, mark: sealed ? ['seal', '封印'] : aimed.indexOf(i) >= 0 ? ['destroy', '破壊'] : null });
@@ -237,12 +257,12 @@
       return;
     }
     const card = s.cards[id], def = R.B[card.type], lv = lvOf(card.type), cell = s.board.indexOf(id);
-    let h = `<h3>${def.name}${lv > 1 ? ` Lv${lv}` : ''} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></h3><p>${R.blockText(card.type, lv)}</p>`;
+    let h = `<h3>${def.name}${lv > 1 ? ` Lv${lv}` : ''} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></h3><p>${tipify(R.blockText(card.type, lv))}</p>`;
     if (def.kw) h += `<p class="kw"><b>${R.KW[def.kw].name}</b>：${R.KW[def.kw].text}</p>`;
     h += `<p class="sub">${R.FAM_HINT[def.fam]}</p>`;
     if (cell >= 0) {
       const sum = R.summary(G.busy ? G.preD : R.derive(s), cell);
-      h += `<p class="${sum.idle ? 'warn' : 'now'}">いま：</p><ul>${sum.lines.map(l => `<li>${l}</li>`).join('')}</ul>`;
+      h += `<p class="${sum.idle ? 'warn' : 'now'}">いま：</p><ul>${sum.lines.map(l => `<li>${tipify(l)}</li>`).join('')}</ul>`;
     } else if (s.sealed.indexOf(id) >= 0) h += '<p class="warn">封印：このターン、凸も凹も はまらない。</p>';
     box.innerHTML = h;
   }
@@ -477,7 +497,7 @@
   function showReward() {
     const run = G.run, next = R.ENEMIES[run.order[run.stage + 1]], rw = run.reward;
     const body = openSheet('reward', `<h2 class="res-win">勝った！　ごほうび（${rw.round}／${R.PICKS}）</h2>
-      <p>HP +${run.healed} 回復（いま ${run.hp} / ${run.max}）。　次の敵：<b>${next.name}</b> — ${next.trait}</p>
+      <p>HP +${run.healed} 回復（いま ${run.hp} / ${run.max}）。　次の敵：<b>${next.name}</b> — ${tipify(next.trait)}</p>
       <h3>3つから 1つ えらぶ</h3><div class="opts" id="opts"></div>
       <div class="row"><button class="btn" id="rw-skip">えらばない</button></div>
       <h3>いまのデッキ（${run.deck.length}個）</h3>`);
@@ -489,7 +509,7 @@
       const fit = o.up ? null : R.fitCount(run.deck, o);
       top.appendChild(el('div', '', `<div class="ok">${o.up ? `レベルアップ Lv${cur} → Lv${o.lv}` : '新しいブロック'}</div><div class="on">${def.name} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></div>`));
       c.appendChild(top);
-      c.appendChild(el('div', 'ot', R.blockText(o.type, o.up ? o.lv : cur)));
+      c.appendChild(el('div', 'ot', tipify(R.blockText(o.type, o.up ? o.lv : cur))));
       if (def.kw) c.appendChild(el('div', 'os', `${R.KW[def.kw].name}：${R.KW[def.kw].text}`));
       c.appendChild(el('div', 'os', o.up ? `デッキの${def.name}（${run.deck.filter(k => k.type === o.type).length}個）が ぜんぶ強くなる。前：${R.blockText(o.type, cur)}`
         : def.fam === 'atk' || def.fam === 'def' ? `この凹に はまる凸：デッキに ${fit.take}個` : `この凸が はまる凹：デッキに ${fit.give}か所`));
@@ -572,7 +592,7 @@
     const w = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       if (!n.nodeValue.trim()) continue;
-      const p = n.parentElement; if (!p || p.closest('script,style,option,select,#drag-ghost')) continue;
+      const p = n.parentElement; if (!p || p.closest('script,style,option,select,#drag-ghost,#tip')) continue;
       let vis = true, clip = null;
       for (let a = p; a && a !== document.body; a = a.parentElement) {
         const cs = getComputedStyle(a);
@@ -631,6 +651,22 @@
     const f = R.forecast(s);
     if (+$('#fc-deal').textContent !== f.dealt || +$('#fc-take').textContent !== f.taken) miss('予想の数字が計算とちがう');
     CHECK.linkChecks++;
+    checkTips();
+  }
+  // 説明つきの印が、どれも rules.js の ことば か。1つ えらんで出してみて、文が同じか・画面の中に収まるか
+  function checkTips() {
+    const all = [...document.querySelectorAll('[data-tip]')].filter(x => x.getClientRects().length);
+    for (const x of all) if (!R.TERMS[x.dataset.tip]) miss(`説明のない ことば: ${x.dataset.tip}`);
+    // 出してみるのは、いま画面に見えている ことば だけ（スマホでは、下にかくれた ことば には のせられない）
+    const els = all.filter(x => { const q = x.getBoundingClientRect(); return q.top >= 0 && q.bottom <= window.innerHeight && q.left >= 0 && q.right <= window.innerWidth; });
+    if (!els.length) return;
+    const x = els[CHECK.tipChecks % els.length], want = R.termText(x.dataset.tip, D());
+    showTip(x);
+    const box = $('#tip'), r = box.getBoundingClientRect();
+    if (box.hidden || box.textContent !== want.name + want.text) miss(`説明の文がちがう（${x.dataset.tip}）`);
+    if (r.left < 0 || r.top < 0 || r.right > window.innerWidth + 1 || r.bottom > window.innerHeight + 1) miss(`説明の箱が画面からはみ出す（${x.dataset.tip} ${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.right)},${Math.round(r.bottom)}）`);
+    CHECK.tipChecks++; CHECK.tipSeen[x.dataset.tip] = 1;
+    if (SCREEN !== 'tip') showTip(null);
   }
   // 「はまるマスの数字」を1つ えらんで、本当に置いて、その数だけ はまるかを見る
   function checkSpot(id, cell) {
@@ -669,6 +705,10 @@
           }
           if (SCREEN === 'help') { showHelp(); sampleLayout(); }
           if (SCREEN === 'deck') { showDeck(); sampleLayout(); }
+          if (SCREEN === 'tip') { // ことばの説明を出した画面（写真用）。&tip=キー で どれを出すか
+            const x = document.querySelector(`[data-tip="${Q.get('tip') || 'guard'}"]`); showTip(x);
+            CHECK.tipShown = x ? { key: x.dataset.tip, text: $('#tip').textContent, hidden: $('#tip').hidden } : null;
+          }
           CHECK.stopped = true; writeCheck(); return;
         }
         await doEnd();

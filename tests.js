@@ -350,6 +350,32 @@ eq('呪い：シールドで防げない。ターンの終わりに呪いの数�
   eq('ごほうびの めやす：増幅(凸が下)が はまる凹は、はじめのデッキに5つ', R.fitCount(R.START_DECK.map(c => ({ type: c[0], rot: c[1] })), { type: 'amp', rot: 1 }).give, 5);
 }
 
+// ------------------------------------------------------------ 8b. ことばの説明（のせると出る文）は、ルールの数字と同じ
+{
+  const g = R.newFight({ enemyId: 'golem', seed: 1 }), h = R.newFight({ enemyId: 'hunter', seed: 1 }), b = R.newFight({ enemyId: 'berserk', seed: 1 });
+  for (const k of Object.keys(R.TERMS)) {
+    const a1 = R.termText(k, g), a2 = R.termText(k, null);
+    ok(`ことばの説明がある ${k}`, !!a1 && a1.name.length > 0 && a1.text.length > 5 && a2.text.length > 5 && a1.text.indexOf('undefined') < 0 && a2.text.indexOf('undefined') < 0);
+  }
+  for (const k of Object.keys(R.KW)) eq(`ことばの説明は、ブロックの ことば と同じ文 ${k}`, R.termText(k, g).text, R.KW[k].text);
+  eq('装甲の説明に、その敵の数字が入る（ゴーレム 2）', R.termText('armor', g).text.indexOf('1回ごとに2へらす') >= 0, true);
+  eq('身かわしの説明に、その敵の数字が入る（狩人 2）', R.termText('evade', h).text.indexOf('最初の2ヒットをよける') >= 0, true);
+  eq('トゲの説明に、その敵の数字が入る（狂戦士 1）', R.termText('thorns', b).text.indexOf('あなたが1ダメージ') >= 0, true);
+  eq('氷の説明に しきい値が入る', R.termText('ice', g).text.indexOf(String(R.FREEZE_AT)) >= 0, true);
+  eq('雷の説明に しきい値とダメージが入る', [R.termText('shock', g).text.indexOf(String(R.SHOCK_AT)) >= 0, R.termText('shock', g).text.indexOf(String(R.SHOCK_DMG)) >= 0], [true, true]);
+  eq('ない ことば は null', R.termText('nothing', g), null);
+  ok('さがす ことば は、長い名前が先（「毒」より「毒消費」のような取りちがえを へらす）', R.TERM_WORDS.every((w, i) => i === 0 || R.TERM_WORDS[i - 1][0].length >= w[0].length));
+  // 説明の文が、計算と合っているか（文に書いたことを1つずつ）
+  eq('結界：毒のダメージは防げない', go([['poison', 1, 1], ['slash', 0, 6]], { e: { guard: 50, poison: 3 } }).dealt, 5);
+  eq('結界：貫通は無視する', go([['pierce', 1, 1], ['slash', 0, 6]], { e: { guard: 50 } }).dealt, 6);
+  eq('結界：敵が次に動くときに消える', go([['slash', 0, 6]], { e: { guard: 50 }, parts: [A(1)] }).s.e.guard, 0);
+  eq('装甲：感電のダメージは へらせない', go([['shock', 1, 1], ['slash', 0, 6]], { e: { armor: 99, shock: 7 } }).dealt, 0 + R.SHOCK_DMG);
+  eq('シールド：トゲも防ぐ。ターンの終わりに消える', (r => [r.taken, r.s.p.shield])(go([['shield', 0, 6], ['slash', 0, 13]], { enemy: 'berserk' })), [0, 0]);
+  eq('呪い：シールドで防げない。そのあと1へる', (r => [r.taken, r.s.p.curse])(go([['shield', 0, 6]], { p: { curse: 3 } })), [3, 2]);
+  eq('凍結：このターンの敵の攻撃が半分。ターンの終わりに消える', (r => [r.taken, r.s.e.frozen])(go([['slash', 0, 6]], { e: { frozen: 1 }, parts: [A(10)] })), [5, 0]);
+  eq('脱皮：凍結も消す', go([['slash', 0, 6]], { e: { frozen: 1 }, parts: [{ k: 'cleanse' }, A(10)] }).taken, 10);
+}
+
 // ------------------------------------------------------------ 9. 5連戦の流れ
 {
   const run = R.newRun(7);

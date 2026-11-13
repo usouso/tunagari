@@ -193,6 +193,12 @@ a { color: inherit; }
 #deck-box { flex: none; padding: 4px 8px; }
 #btn-deck { width: 100%; text-align: left; border: 0; }
 
+/* ことばの説明（のせる・押すと出る）。印は点線の下線 */
+.tip { border-bottom: 1px dotted currentColor; cursor: help; }
+.chip[data-tip], .pc .mark[data-tip], .cell .tag[data-tip] { cursor: help; pointer-events: auto; }
+#tip { position: fixed; z-index: 120; left: 0; top: 0; max-width: min(340px, calc(100vw - 16px)); background: #0b0d12; border: 1px solid #8a93a6; border-radius: 10px; padding: 8px 12px; font-size: 14.5px; line-height: 1.5; color: var(--text); pointer-events: none; box-shadow: 0 6px 18px rgba(0, 0, 0, .55); }
+#tip b { display: block; color: var(--shock); font-size: 15px; }
+
 /* 重ねて出す画面 */
 .overlay { position: fixed; inset: 0; background: rgba(5, 6, 9, .8); display: grid; place-items: center; z-index: 50; padding: 12px; }
 .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px 22px; width: min(1100px, 100%); max-height: 100%; overflow-y: auto; }

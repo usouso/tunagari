@@ -93,6 +93,31 @@
     charge: { name: 'たまり', text: '次のターンから、最初に当たったヒットに ぜんぶ のる。' },
   };
   const STATUS_NAMES = { poison: '毒', fire: '炎', ice: '氷', shock: '雷' };
+  // ことばの説明（画面で、ことばにカーソルをのせる・押すと出る）。画面はこれをそのまま出す。
+  //   text(s) … s は いまの戦い（敵の数字を入れるため。なければ、数字なしの文）
+  const num = (s, k) => (s && s.e && s.e[k] ? String(s.e[k]) : '');
+  const TERMS = {
+    poison:  { name: '毒', text: () => KW.poison.text },
+    fire:    { name: '炎', text: () => KW.fire.text },
+    ice:     { name: '氷', text: () => KW.ice.text },
+    shock:   { name: '雷', text: () => KW.shock.text },
+    charge:  { name: 'たまり', text: () => KW.charge.text },
+    frozen:  { name: '凍結', text: () => 'このターン、敵の攻撃のダメージが半分になる。' },
+    shield:  { name: 'シールド', text: () => '敵の攻撃と トゲを、この数だけ防ぐ。ターンの終わりに消える。前のターンから残った分 → 左上の盾の分、の順に使う。' },
+    curse:   { name: '呪い', text: () => 'ターンの終わりに 呪いの数だけダメージ（シールドで防げない）。そのあと1へる。' },
+    guard:   { name: '結界', text: () => 'あなたのヒットのダメージを、この数まで防ぐ（毒・毒消費・感電・反射は防げない。貫通は無視する）。敵が次に動くときに消える。' },
+    seal:    { name: '封印', text: () => '封印されたブロックは、そのターン、凸も凹も はまらない（自分では働く）。' },
+    rubble:  { name: 'がれき', text: () => 'がれきのマスには、そのターン 置けない。' },
+    destroy: { name: '破壊', text: () => 'いちばん多く はまっているブロックが、この戦いの間 なくなる（同じ数なら左上）。どこも はめなければ、何も こわれない。' },
+    armor:   { name: '装甲', text: s => `ヒットのダメージを 1回ごとに${num(s, 'armor') || '決まった数だけ'}へらす（毒・毒消費・感電・反射は へらせない。貫通は無視する）。` },
+    evade:   { name: '身かわし', text: s => `毎ターン、あなたの最初の${num(s, 'evade') ? num(s, 'evade') + 'ヒット' : '何ヒットか'}をよける。よけられたヒットでは、わたした能力は働かない。` },
+    thorns:  { name: 'トゲ', text: s => `あなたのヒット1回ごとに、あなたが${num(s, 'thorns') || '少し'}ダメージ受ける（シールドで防げる）。` },
+    cleanse: { name: '脱皮', text: () => '敵の毒・炎・氷・雷・凍結を全部消す。' },
+    rage:    { name: '怒り', text: () => '3周目から、敵の攻撃が強くなる。長引くほど危ない。' },
+  };
+  function termText(key, s) { const t = TERMS[key]; return t ? { name: t.name, text: t.text(s) } : null; }
+  // 文の中から さがす ことば（長い名前から先に）。[名前, キー]
+  const TERM_WORDS = Object.keys(TERMS).map(k => [TERMS[k].name, k]).sort((a, b) => b[0].length - a[0].length);
   const maxLv = type => B[type].v.length;
   const lvOf = (lv, type) => Math.min(maxLv(type), (lv && lv[type]) || 1);
   const val = (lv, type) => B[type].v[lvOf(lv, type) - 1];
@@ -726,7 +751,7 @@
 
   return {
     W, H, N, HAND, MAXHP, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
-    B, TYPES, FAMS, FAM_HINT, KW, STATUS_NAMES, ENEMIES, ENEMY_IDS, START_DECK, NB, INNER,
+    B, TYPES, FAMS, FAM_HINT, KW, STATUS_NAMES, TERMS, TERM_WORDS, termText, ENEMIES, ENEMY_IDS, START_DECK, NB, INNER,
     blockText, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
     newFight, cloneState, beginTurn, makeIntent, cellOf, canPut, put, take, clearBoard, rotate, linksIfPut,
     resolve, endTurn, forecast,

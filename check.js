@@ -6,7 +6,7 @@
  *         node check.js only=文字 （名前にその文字が入る場面だけ。全体の合格には数えない）
  * 失敗にするもの（終了コード1）:
  *   ページのエラー / 決着まで行かない / 「クリアまで」の場面で5戦目まで勝ち切れない / 表示と計算のずれ（はまっている凸・番号・札の字・予想・HP）/ 予想と結果のずれ / 演出の合計と計算のずれ /
- *   「はまるマスの数字」と置いたあとの本当の数のずれ / 文字の重なり / 画面からのはみ出し / 文字の切れ / パソコン寸法でのページのスクロール
+ *   「はまるマスの数字」と置いたあとの本当の数のずれ / ことばの説明（のせると出る箱）の文が rules.js とちがう・箱が画面からはみ出す / 文字の重なり / 画面からのはみ出し / 文字の切れ / パソコン寸法でのページのスクロール
  * 画面の写真は screenshots/ に保存する。
  * 注意: これは自動プレイの検査。人が実際にクリック・ドラッグして通す確認は別（REPORT.md を見る）。
  */
@@ -61,6 +61,7 @@ async function main() {
     add(sn, w, h, pc, '4ターン目で止める（組んだ盤面）', 'auto=1&speed=0&seed=11&stop=4', { stop: true, shot: 'board' });
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
+    add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
     if (lite) continue;
     add(sn, w, h, pc, 'はずす画面', 'auto=1&speed=0&seed=11&screen=remove', { stop: true, screen: 'remove', shot: 'remove' });
     add(sn, w, h, pc, 'あそびかた', 'auto=1&speed=0&seed=11&stop=1&screen=help', { stop: true, screen: 'help', shot: 'help' });
@@ -78,7 +79,7 @@ async function main() {
   const only = (process.argv.find(a => a.startsWith('only=')) || '').slice(5);
   if (only) { const keep = cases.filter(c => c.name.indexOf(only) >= 0); cases.length = 0; cases.push(...keep); }
   if (!cases.length) { console.log(`✗ only=${only} に合う場面が1つもない（何も検査していないので、失敗にする）`); server.close(); process.exit(1); }
-  let fail = 0, n = 0; const total = { turns: 0, links: 0, spots: 0, fights: 0, clears: 0 };
+  let fail = 0, n = 0; const total = { turns: 0, links: 0, spots: 0, fights: 0, clears: 0, tips: 0, tipSeen: {} };
   for (const c of cases) {
     n++;
     const win = c.pc ? `--window-size=${c.w + DW},${c.h + DH}` : `--window-size=${500 + DW},${c.h + DH}`;
@@ -98,6 +99,9 @@ async function main() {
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
       if (c.pick && !(k.picked && k.picked.spots > 0)) bad.push('はまるマスの表示が出ていない');
       if (c.screen && !(k.screens && k.screens[c.screen] > 0)) bad.push(`「${c.screen}」の画面が開いていない`);
+      if (c.tip && !(k.tipShown && k.tipShown.key === c.tip && !k.tipShown.hidden && k.tipShown.text.indexOf('結界') === 0 && k.tipShown.text.length > 10)) bad.push(`ことばの説明が出ていない（${JSON.stringify(k.tipShown)}）`);
+      if (c.play && !(k.tipChecks > 0)) bad.push('ことばの説明の検査が、1回も動かなかった');
+      total.tips += k.tipChecks || 0; for (const key of Object.keys(k.tipSeen || {})) total.tipSeen[key] = 1;
       total.turns += k.turns || 0; total.links += k.linkChecks || 0; total.spots += k.spotChecks || 0; total.fights += k.fights || 0;
       if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;
@@ -122,6 +126,7 @@ async function main() {
   console.log(`\nくらべた回数: 戦い ${total.fights} / ターン ${total.turns}（予想＝結果、演出の合計＝計算、HPの表示）/ 盤面の絵 ${total.links} / はまるマスの数字 ${total.spots}`);
   if (!only && !(total.clears > 0)) { console.log('✗ 5戦目まで勝ち切る場面が、1つも回っていない（検査が足りない）'); fail++; }
   console.log(`5戦目まで勝ち切る場面: ${total.clears}`);
+  console.log(`ことばの説明を出してくらべた回数: ${total.tips}（出した ことば: ${Object.keys(total.tipSeen).sort().join(' ')}）`);
   console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);
 }

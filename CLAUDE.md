@@ -18,7 +18,7 @@
 
 ## きまり
 - ルールを変えたら `node tests.js` と `node check.js` を通す。数字を変えたら `node bot.js` の表も見る（`runs` の「ためして選ぶ」「でたらめに選ぶ」「取らない」の3行と、`adapt`）。
-- 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `summary` / `giftText` / `intentLines` / `destroyTargets` / `linksIfPut` を使う）。
+- 画面の側で条件や数字を書き直さない（`rules.js` の `derive` / `summary` / `giftText` / `intentLines` / `destroyTargets` / `linksIfPut` を使う）。ことばの説明（のせると出る文）は `rules.js` の `TERMS` に足す。画面で ことば に印を付けるのは `tipify`（文の中）か `data-tip`（ふだ・印）。
 - 凸凹の「効く・効かない」は `rules.js` の `accepts` の表1つで決める。画面の印（色つきの凸＝効く、灰色に×＝効かない）も同じ表から出す。
 - 演出用の CSS の class は `fx-` で始める。「はまる所」の表示の class は `lk-` で始める。ブロックの絵の class は `pc-` で始める。
 - 札の上に字を足すときは、スマホ幅（マス71px）で重ならないかを `node check.js only=phone` で見る（レベルは字でなく点にしてある）。
