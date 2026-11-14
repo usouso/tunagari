@@ -33,7 +33,7 @@ const p = s => L.push(s === undefined ? '' : s);
 
 p('# ツナガリ・ビルド（ジグソー版 試作2）ルールとブロックのまとめ');
 p();
-p(`> ほかの AI に意見を聞くための資料（作っている本人が、ほかの AI に渡す）。**ブロックの文・数字・形・敵の数字は、ゲームのルールのファイル（rules.js）から自動で作った**ので、本物と同じ（作った時の commit: \`${commit}\`、${new Date().toISOString().slice(0, 10)}）。`);
+p(`> ほかの AI に意見を聞くための資料（作っている本人が、ほかの AI に渡す）。**ブロックの文・数字・形・敵の数字は、ゲームのルールのファイル（rules.js）から自動で作った**ので、本物と同じ（ルールの commit: \`${commit}\`、${new Date().toISOString().slice(0, 10)}）。`);
 p('> 遊べる版：https://usouso.github.io/tunagari/ （攻め・守り版は https://usouso.github.io/tunagari/?abil=1 ）');
 p();
 
