@@ -13,6 +13,7 @@
 - `bot.js` … ボットの集計（`node bot.js` / `stage` / `adapt` / `use` / `picks` / `hand`）。結果は `evidence/`。
 - `check.js` … 画面の機械検査（ヘッドレスの Chrome。`node check.js`）。写真は `screenshots/`。
 - `server.js` … 確認用の小さなサーバー（127.0.0.1:8437）。`index.html` を直接開いても遊べる。
+- `blocks-doc.js` → `BLOCKS.md` … ほかの AI に意見を聞くための「ルールとブロックのまとめ」を rules.js から作る（`node blocks-doc.js`）。ルールを変えたら作り直す。
 - `review.js` … Codex に独立レビューを頼む（`node review.js` / `all` / `dry`）。結果は `reviews/` に残る。
 - `v1/` … 前の版の一式（ルール・画面・テスト・検査・写真・証拠・REPORT）。
 
