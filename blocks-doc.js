@@ -9,7 +9,7 @@ const fs = require('fs'), path = require('path'), { execSync } = require('child_
 const R = require('./rules.js');
 
 let commit = '（不明）';
-try { commit = execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf8' }).trim(); } catch (e) { /* git がなくても作れる */ }
+try { commit = execSync('git log -1 --format=%h -- rules.js', { cwd: __dirname, encoding: 'utf8' }).trim(); } catch (e) { /* git がなくても作れる */ }
 
 const SIDE = ['上', '右', '下', '左'], MARK = { 1: '凸', '-1': '凹', 0: '－' };
 const shape = t => R.edges(t, 0).map((v, i) => `${SIDE[i]}${MARK[v]}`).join(' ');
