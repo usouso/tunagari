@@ -34,7 +34,7 @@
                txt: v => `${v}ダメージ ×2ヒット。`, txtX: v => `${v}ダメージ ×3ヒット。` },
     area:    { fam: 'atk',  name: '範囲攻撃', g: '範', v: [3, 5, 7], hits: 1, sh: [-1, -1, -1, -1],
                txt: v => `${v}ダメージ ×1ヒット。4つの辺が ぜんぶ凹。`,
-               txtX: v => `${v}ダメージ。4つの辺が ぜんぶ凹。共鳴：受け取った能力が ちがう種類で2つなら2ヒット、3つなら3ヒット、4つなら4ヒット。` },
+               txtX: v => `${v}ダメージ。4つの辺が ぜんぶ凹。共鳴：受け取った能力の 種類の数だけヒット（2種類で2ヒット、3種類で3ヒット…。1種類以下は1ヒット）。` },
     shield:  { fam: 'def',  name: '盾',       g: '盾', v: [7, 10, 13], sh: [-1, -1, 0, 0],
                txt: v => `シールド+${v}。敵の攻撃を防ぐ。ターンの終わりに消える。` },
     tough:   { fam: 'def',  name: '堅牢',     g: '堅', v: [2, 3, 4], sh: [-1, 0, 0, 0],
@@ -56,7 +56,7 @@
     consume: { fam: 'abil', name: '毒消費',   g: '消', v: [2, 3, 4], sh: [0, 1, -1, 0], f2: { def: 'ward' },
                txt: v => `敵の毒を全部消して、消した数×${v} のダメージ。`, txt3: v => `敵の毒を全部消して、攻め：消した数×${v} のダメージ。 守り：消した数×${v * 2} のシールド。` },
     charge:  { fam: 'abil', name: '蓄積',     g: '蓄', v: [3, 5, 7], sh: [0, 1, 0, -1], kw: 'charge', f2: { atk: 'focus', def: 'brace', self: 'focus' },
-               txt: v => `たまり+${v}。`, txt3: v => `攻め：力だめ+${v}。 守り：敵の最初のヒット−${v}。` },
+               txt: v => `たまり+${v}。`, txt3: v => `攻め：力だめ+${v}。 守り：敵の、最初に当たるヒット−${v}。` },
     amp:     { fam: 'enh',  name: '増幅',     g: '増', v: [2, 2.5, 3], sh: [0, 1, 0, 0],
                txt: v => `わたした相手の数字が ${v}倍。` },
     haste:   { fam: 'enh',  name: '加速',     g: '速', v: [1, 2, 3], sh: [0, 1, 0, 0],
@@ -95,7 +95,7 @@
     charge: { name: 'たまり', text: '次のターンから、最初に当たったヒットに ぜんぶ のる。' },
     frail:  { name: '弱る', text: '敵のヒットのダメージが、1回ごとに 弱るの数だけ へる。ターンの終わりに半分にへる。' },
     // 攻め・守り版2（?abil=2）だけで出る ことば
-    ember:  { name: '火の粉', text: '敵のヒットを受けるたびに、この数だけ 敵にダメージ。ヒットではないので、装甲・結界・身かわしに止められない。' },
+    ember:  { name: '火の粉', text: '敵のヒット1回ごとに（よけたヒットも）、この数だけ 敵にダメージ。ヒットではないので、装甲・結界・身かわしに止められない。' },
     focus:  { name: '力だめ', text: 'このターン、次に当たるヒットのダメージに ぜんぶ のる。ターンの終わりに消える。' },
   };
   const STATUS_NAMES = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', frail: '弱る' };
@@ -305,7 +305,7 @@
     if (g.kind === 'ember') return `火の粉${g.amt}${t}`;
     if (g.kind === 'might') return `ダメージ+${g.amt}${t}`;
     if (g.kind === 'focus') return `力だめ+${g.amt}${t}`;
-    if (g.kind === 'brace') return `敵の最初のヒット−${g.amt * (g.times || 1)}`;
+    if (g.kind === 'brace') return `敵の、最初に当たるヒット−${g.amt * (g.times || 1)}`;
     if (g.kind === 'ward') return `毒消費→シールド×${g.amt * 2}${t}`;
     return '';
   }
@@ -622,7 +622,7 @@
         else if (g.kind === 'ward') {
           const n = e.poison, sh = rd(n * g.amt * 2); e.poison = 0; // シールドは 防がないと得にならないので、ダメージの2倍
           if (sh > 0) { pools.push({ cell: at, amt: sh, mirror: 0, leech: 0, keep: 0 }); p.shield += sh; }
-          snap({ t: 'ward', cell: g.cell, at, n, sh });
+          snap({ t: 'ward', cell: g.cell, at, n, gain: sh }); // sh は snap が「いまのシールド」に使うので、足した分は gain
         }
         else if (g.kind === 'might') break; // 攻撃のヒットに 先に足してある（derive の might）
         else if (g.kind === 'consume') {
@@ -660,7 +660,7 @@
     if (!over) {
       e.guard = 0;
       const it = s.intent; snap({ t: 'eact', label: it.label });
-      const cUses = {}; let dodgeLeft = d.dodge, braceLeft = d.brace; // 蓄積の守り：最初に当たるヒットだけ
+      const cUses = {}; let dodgeLeft = d.dodge, braceLeft = d.brace; // 蓄積の守り：最初に当たるヒットだけ（よけたヒットには使わない）
       for (const part of it.parts) {
         if (over) break;
         if (part.k === 'atk') {

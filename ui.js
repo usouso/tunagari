@@ -168,7 +168,7 @@
   function chip(cls, text, tip) { return `<span class="chip ${cls}"${tip ? ` data-tip="${tip}"` : ''}>${text}</span>`; }
   function renderTop() {
     const s = D();
-    $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}` + (ABIL ? ` ／ 攻め・守り版${ABIL === 2 ? '2' : ''}` : '') + (ATKX ? ' ／ 攻撃くらべ版' : '');
+    $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}` + (ABIL || ATKX ? ' ／ ' + [ABIL ? `攻め守り${ABIL === 2 ? '2' : ''}` : '', ATKX ? '攻撃' : ''].filter(Boolean).join('・') + '版' : ''); // スマホ幅に収まる短さ
     const r = $('#route'); r.innerHTML = '';
     if (G.run) G.run.order.forEach((id, i) => { const c = el('span', 'rt' + (i < G.run.stage ? ' done' : i === G.run.stage ? ' now' : ''), R.ENEMIES[id].g); c.title = `${i + 1}戦目 ${R.ENEMIES[id].name}`; r.appendChild(c); });
   }
@@ -448,8 +448,9 @@
       }
       case 'ward':
         CHECK.faceGifts.ward = (CHECK.faceGifts.ward || 0) + 1; fxCell(e.cell);
-        if (e.sh > 0) slot('#player-dmg', `+${e.sh}`, `毒${e.n}を シールドに`, 'heal');
-        log('lp', `毒消費：毒${e.n}を消して シールド+${e.sh}`); return e.sh > 0 ? 260 : 60;
+        if (!(e.n > 0)) return 60; // 消す毒が なかった（2発目から）。きろくに書かない
+        slot('#player-dmg', `+${e.gain}`, `毒${e.n}を シールドに`, 'heal');
+        log('lp', `毒消費：毒${e.n}を消して シールド+${e.gain}`); return 260;
       case 'consume': fxCell(e.cell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, `毒${e.n}を消費`); log('lp', `毒消費：毒${e.n}を消して ${e.dmg}ダメージ`); sfx('big'); return 300;
       case 'shock': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '感電！ 次は1個多く引く'); log('lp', `感電：${e.dmg}ダメージ。次のターン 1個多く引く`); sfx('big'); return 320;
       case 'freeze': slot('#enemy-dmg', '凍結！', '敵の攻撃が半分'); log('lp', '凍結：このターンの敵の攻撃が半分'); sfx('big'); return 300;
@@ -584,7 +585,7 @@
       <p>2. <b>凸</b>が、となりのブロックの<b>凹</b>に向かい合うと「はまる」。能力は 凸 → 凹 に わたる。わたした側は、自分では働かない。わたさない能力ブロックは、自分で1回 働く（半分の力）。</p>
       <p>3. 受け取ったものは、次のブロックへは わたらない。</p>
       <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。シールドは、前のターンから残った分 → 左上の盾の分、の順に使う。</p>` + (ABIL ? `
-      <p>（攻め・守り版 ?abil=${ABIL}）${ABIL === 2 ? '毒・炎・再生・毒消費・蓄積' : '毒と再生'}は、<b>攻撃に のせると「攻め」</b>、<b>防御に のせると「守り」</b>の働きになる。ひとりのときと、能力に のせたときは「攻め」（ひとりは半分の力${ABIL === 2 ? '。再生は ひとりなら HP' : ''}）。</p>` : '') + `
+      <p>（攻め・守り版 ?abil=${ABIL}）${ABIL === 2 ? '毒・炎・再生・毒消費・蓄積' : '毒と再生'}は、<b>攻撃に のせると「攻め」</b>、<b>防御に のせると「守り」</b>の働きになる。ひとりのときと、能力に のせたときは「攻め」（ひとりは半分の力）。${ABIL === 2 ? '再生だけは、攻撃に のせたときが攻めで、ほか（防御・ひとり・能力に のせたとき）は HP。' : ''}</p>` : '') + `
       <p>5. ターンの終わりに、手札は全部 捨て札へ。山札がなくなったら、捨て札を切り直す。</p>
       <h3>4つの系統（色と形で分かる）</h3>` +
       ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('') +
@@ -727,6 +728,18 @@
           s.intent = { label: 'ことばの場面', rage: true, parts: [{ k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'cleanse' }], cells: { rubble: [8, 13] } }; // 予告は3行まで（本物の戦いは2行まで。多すぎると左の列が あふれる）
           if (ABIL === 2) { s.p.charge = 0; s.p.focus = 5; s.cards[s.hand[1]].type = 'fire'; G.hoverId = s.hand[1]; } // 版2：力だめ（印）と 火の粉（炎の説明の文の中）も出す
           R.put(s, s.hand[0], 11); renderAll(); checkTips(true); sampleLayout();
+          CHECK.stopped = true; writeCheck(); return;
+        }
+        if (Q.get('scene') === 'faces') { // 決まった場面（?abil=2&atk=1）：火の粉・蓄積の守り・毒消費の守り・共鳴を、画面の「発動」で起こす
+          while (s.hand.length < 8 && s.deck.length) s.hand.push(s.deck.pop());
+          const plan = [['fire', 1, 1], ['shield', 0, 6], ['charge', 2, 7], ['area', 0, 8], ['poison', 1, 3], ['ice', 2, 9], ['consume', 2, 12], ['shield', 0, 11]];
+          s.sealed = []; s.blocked = [];
+          plan.forEach(([t, r, c], k) => { const id = s.hand[k]; s.cards[id].type = t; s.cards[id].rot = r; if (!R.put(s, id, c)) miss(`場面の札を置けない（${t}）`); });
+          renderAll(); checkBoardDisplay(); sampleLayout();
+          const hits = R.derive(s).blk[8].atk.hits;
+          await doEnd(); sampleLayout();
+          const f = CHECK.faceGifts;
+          CHECK.facesScene = { hits, ember: f.ember || 0, brace: f.brace || 0, ward: f.ward || 0, ok: hits === 2 && f.ember > 0 && f.brace > 0 && f.ward > 0 };
           CHECK.stopped = true; writeCheck(); return;
         }
         if (Q.get('scene') === 'rotate') { // 決まった場面：回す操作3つ（右クリック・R キー・「回す」ボタン）と、もう一度押す

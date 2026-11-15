@@ -188,7 +188,7 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   const AB = { abil: 2 }, ab = o => Object.assign({}, o, AB);
   eq('版2の文（炎）', R.blockText('fire', 1, 2), '攻め：炎+1。 守り：火の粉1。');
   eq('版2の文（再生）', R.blockText('regen', 1, 2), '攻め：ヒットのダメージ+2。 守り・ひとり：HP+2。');
-  eq('版2の文（蓄積）', R.blockText('charge', 1, 2), '攻め：力だめ+3。 守り：敵の最初のヒット−3。');
+  eq('版2の文（蓄積）', R.blockText('charge', 1, 2), '攻め：力だめ+3。 守り：敵の、最初に当たるヒット−3。');
   eq('版2の文（毒消費の守りは 2倍のシールド）', R.blockText('consume', 1, 2), '敵の毒を全部消して、攻め：消した数×2 のダメージ。 守り：消した数×4 のシールド。');
   ok('版2でも 氷・雷・追撃の文は ふだんと同じ', ['ice', 'shock', 'chase'].every(t => R.blockText(t, 1, 2) === R.blockText(t, 1)));
   ok('版1の文は 変わらない（再生は たまり）', R.blockText('regen', 1, 1) === '攻め：たまり+2。 守り：HP+2。');
@@ -206,7 +206,10 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('再生→盾（守り）：敵のヒットごとに HP+2', go([['regen', 1, 1], ['shield', 0, 6]], ab({ p: { hp: 50 }, parts: [A(1, 3)] })).s.p.hp, 56);
   // 毒消費
   const w1 = go([['consume', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 2)], e: { poison: 6 } }));
-  eq('毒消費→盾（守り）：1ヒット目のあと 毒6×4=24 のシールド。10×2 を 盾7 → 3、のこりは防ぐ', [w1.taken, w1.s.e.poison, w1.ev.find(x => x.t === 'ward').sh], [3, 0, 24]);
+  eq('毒消費→盾（守り）：1ヒット目のあと 毒6×4=24 のシールド。10×2 を 盾7 → 3、のこりは防ぐ', [w1.taken, w1.s.e.poison, w1.ev.find(x => x.t === 'ward').gain], [3, 0, 24]);
+  const w2 = go([['consume', 1, 1], ['shield', 0, 6]], ab({ parts: [A(3, 2)], e: { poison: 5 } })); // 盾7 が 3 を防いで のこり4。そこへ 毒5×4=20
+  const wv = w2.ev.find(x => x.t === 'ward');
+  eq('毒消費の守り：出来事の「足した分」(gain) と「いまのシールド」(sh) を分けて持つ（20 と 24）', [wv.gain, wv.sh, w2.ev.filter(x => x.t === 'ward').length], [20, 24, 2]);
   eq('毒消費→斬撃（攻め）：ふだんと同じ（6 + 毒6×2）', go([['consume', 1, 1], ['slash', 0, 6]], ab({ e: { poison: 6 } })).dealt, 18);
   // 蓄積
   const c1 = go([['charge', 1, 1], ['slash', 0, 6], ['slash', 0, 7]], AB);
@@ -214,7 +217,15 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('蓄積 ひとり（攻めの半分）：力だめ+2 が、あとの斬撃に のる（8）', go([['charge', 0, 0], ['slash', 0, 6]], AB).dealt, 8);
   const c2 = go([['charge', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 2)] }));
   eq('蓄積→盾（守り）：敵の最初のヒットだけ −3（10−3=7 は盾7で0、次の10 は そのまま）', [c2.taken, c2.ev.filter(x => x.t === 'ehit').map(x => x.brace)], [10, [3, 0]]);
-  ok('蓄積→盾 の説明に「敵の最初のヒット−3」', R.summary(R.derive(mk([['charge', 1, 1], ['shield', 0, 6]], AB)), 6).lines.join('').indexOf('敵の最初のヒット−3') >= 0);
+  ok('蓄積→盾 の説明に「敵の、最初に当たるヒット−3」', R.summary(R.derive(mk([['charge', 1, 1], ['shield', 0, 6]], AB)), 6).lines.join('').indexOf('敵の、最初に当たるヒット−3') >= 0);
+  // Codex の指摘（2026-11-15）2・3：回避と重ねたとき
+  const c3 = go([['charge', 1, 1], ['dodge', 0, 6]], ab({ parts: [A(10, 2)] }));
+  eq('蓄積→回避（守り）：よけた1発目には使わず、最初に当たる2発目が −3（10−3=7）', [c3.taken, c3.ev.filter(x => x.t === 'ehit').map(x => x.brace || 0)], [7, [0, 3]]);
+  const f3 = go([['fire', 1, 1], ['dodge', 0, 6]], ab({ parts: [A(10, 2)] }));
+  eq('炎→回避（守り）：火の粉は よけたヒットでも出る（文のとおり。2回）', [f3.gifts('ember'), f3.dealt, f3.taken], [2, 2, 10]);
+  ok('火の粉の説明に「よけたヒットも」', R.termText('ember').text.indexOf('よけたヒットも') >= 0);
+  // 4：再生を能力に わたすと HP（ひとりと同じ）
+  eq('再生→毒（能力が受け取る）：版2では HP+2（攻めは 攻撃に のせたときだけ）', go([['regen', 1, 1], ['poison', 1, 6]], ab({ p: { hp: 50 } })).s.p.hp, 52);
   eq('力だめは ターンの終わりに消える（攻撃のない盤面）', go([['charge', 0, 0]], AB).s.p.focus, 0);
   const fc = R.forecast(mk([['charge', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 2)] })));
   eq('版2も 予想＝結果', fc.taken, c2.taken);
@@ -228,6 +239,10 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('共鳴：ちがう能力2種類で 2ヒット', R.derive(mk([['poison', 1, 1], ['fire', 0, 5], ['area', 0, 6]], X)).blk[6].atk.hits, 2);
   eq('共鳴：同じ能力2つは 1種類（1ヒット）', R.derive(mk([['poison', 1, 1], ['poison', 0, 5], ['area', 0, 6]], X)).blk[6].atk.hits, 1);
   eq('共鳴：何も受け取らないと1ヒット', R.derive(mk([['area', 0, 6]], X)).blk[6].atk.hits, 1);
+  // Codex の指摘（2026-11-15）1：拡散で5種類目が とどくと5ヒット（文は「種類の数だけ」）
+  const five = R.derive(mk([['area', 0, 6], ['poison', 1, 1], ['fire', 0, 5], ['ice', 2, 7], ['shock', 3, 11], ['regen', 0, 13], ['spread', 0, 12]], X));
+  eq('共鳴：四方の4種類＋拡散の再生で 5種類 → 5ヒット', [five.blk[6].got.length, five.blk[6].atk.hits], [5, 5]);
+  ok('共鳴の文は「種類の数だけヒット」（上限を書いていない）', R.blockText('area', 1, 0, true).indexOf('種類の数だけヒット') >= 0);
   eq('ふだんの範囲攻撃は 2種類でも1ヒット', R.derive(mk([['poison', 1, 1], ['fire', 0, 5], ['area', 0, 6]])).blk[6].atk.hits, 1);
   const g = go([['poison', 1, 1], ['fire', 0, 5], ['area', 0, 6]], X);
   eq('共鳴2ヒット：毒も炎も ヒットごと（毒+2 ×2、炎+1 ×2）', [g.gifts('poison'), g.gifts('fire')], [2, 2]);
