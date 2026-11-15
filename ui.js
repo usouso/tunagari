@@ -1,6 +1,6 @@
 /*
  * ui.js — 画面（ジグソー版 v2）。ルール(rules.js)が返す出来事ログを再生するだけ。条件や数字は、ここで書き直さない。
- * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?abil=1（毒・再生が 攻め／守り で変わる。くらべる用）
+ * URL: ?seed=数 / ?enemy=golem|hunter|hydra|mage|berserk（1戦だけ。&stage=0〜4）/ ?speed=0 / ?mute=1 / ?abil=1（毒・再生が 攻め／守り で変わる。くらべる用）/ ?abil=2（毒・炎・再生・毒消費・蓄積が 攻め／守り。たまり なし）/ ?atk=1（射撃3ヒット・範囲攻撃は共鳴）
  *      ?hp=数（れんしゅうを そのHPで始める。検査用）
  *      ?auto=1（ボットが画面を通して遊ぶ・無音）&bot=smart|random… &picks=sim（ごほうびを ためしてから選ぶ）&stop=ターン &pick=1 &screen=reward|remove|help|deck|tip（&tip=キー）&scene=thorn（攻撃を1個だけ置く）| terms（ことばの説明を全部 出す）| rotate（回す操作）
  */
@@ -10,8 +10,11 @@
   const $ = s => document.querySelector(s);
   const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
   const Q = new URLSearchParams(location.search);
-  const AUTO = Q.get('auto') === '1', MUTE = AUTO || Q.get('mute') === '1', ABIL = Q.get('abil') === '1'; // ?abil=1 … 毒・再生が「攻め／守り」で変わる くらべる版
-  const bText = (t, l) => R.blockText(t, l, ABIL);
+  const AUTO = Q.get('auto') === '1', MUTE = AUTO || Q.get('mute') === '1', ABIL = Math.max(0, Math.min(2, +Q.get('abil') | 0)); // ?abil=1・2 … 能力が「攻め／守り」で変わる くらべる版
+  const ATKX = Q.get('atk') === '1'; // ?atk=1 … 攻撃ブロックの くらべる版（射撃3ヒット・範囲攻撃は共鳴）
+  const bText = (t, l) => R.blockText(t, l, ABIL, ATKX);
+  // ことばの説明に出すもの（その版で出てこない ことばは出さない）
+  const kwShown = k => (k === 'ember' || k === 'focus' ? ABIL === 2 : k === 'charge' ? ABIL !== 2 : true);
   const STOP = Q.has('stop') ? +Q.get('stop') : 0, SCREEN = Q.get('screen') || '';
   const FAM_COLOR = { atk: 'var(--atk)', def: 'var(--def)', abil: 'var(--abil)', enh: 'var(--enh)' };
   const SRC_NAMES = { fire: '炎', chase: '追撃', consume: '毒消費', poison: '毒', shock: '感電', mirror: '反射', charge: 'たまり' };
@@ -115,7 +118,7 @@
   const lvOf = type => R.lvOf(D() ? D().lv : (G.run ? G.run.lv : {}), type);
 
   // ------------------------------------------------------------ タイトル
-  function previewOrder() { return R.newRun(G.seed, { abil: ABIL }).order; }
+  function previewOrder() { return R.newRun(G.seed, { abil: ABIL, atkx: ATKX }).order; }
   function renderTitle() {
     const rules = $('#title-rules'); rules.innerHTML = '';
     const RULES = [
@@ -143,11 +146,11 @@
     renderTitle();
   }
   function startRun() {
-    G.mode = 'run'; G.run = R.newRun(G.seed, { abil: ABIL }); G.s = G.run.fight; enterBattle();
+    G.mode = 'run'; G.run = R.newRun(G.seed, { abil: ABIL, atkx: ATKX }); G.s = G.run.fight; enterBattle();
   }
   function startOne(id, stage) {
     G.mode = 'one'; G.run = null;
-    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, abil: ABIL, hp: Q.has('hp') ? Math.max(1, +Q.get('hp') | 0) : 0 }); enterBattle(); // ?hp=数 … 検査用
+    G.s = R.newFight({ enemyId: id, stage: stage || 0, seed: G.seed, abil: ABIL, atkx: ATKX, hp: Q.has('hp') ? Math.max(1, +Q.get('hp') | 0) : 0 }); enterBattle(); // ?hp=数 … 検査用
   }
   function enterBattle() {
     G.sel = null; G.busy = false; G.view = null; G.pre = null; G.turnSum = { e: 0, p: 0 }; G.hoverId = null;
@@ -165,7 +168,7 @@
   function chip(cls, text, tip) { return `<span class="chip ${cls}"${tip ? ` data-tip="${tip}"` : ''}>${text}</span>`; }
   function renderTop() {
     const s = D();
-    $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}` + (ABIL ? ' ／ 攻め・守り版' : '');
+    $('#turn-label').textContent = (G.mode === 'run' ? `${s.stage + 1}戦目 ／ ` : 'れんしゅう ／ ') + `ターン ${s.turn}` + (ABIL ? ` ／ 攻め・守り版${ABIL === 2 ? '2' : ''}` : '') + (ATKX ? ' ／ 攻撃くらべ版' : '');
     const r = $('#route'); r.innerHTML = '';
     if (G.run) G.run.order.forEach((id, i) => { const c = el('span', 'rt' + (i < G.run.stage ? ' done' : i === G.run.stage ? ' now' : ''), R.ENEMIES[id].g); c.title = `${i + 1}戦目 ${R.ENEMIES[id].name}`; r.appendChild(c); });
   }
@@ -187,9 +190,9 @@
   function renderPlayer() {
     const s = D(), p = s.p, hp = num('ph', Math.max(0, p.hp));
     $('#player-fill').style.width = (hp / p.max * 100) + '%'; $('#player-hp').textContent = `${hp} / ${p.max}`;
-    const sh = num('sh', p.shield), cu = num('pc', p.curse), ch = num('ch', p.charge);
+    const sh = num('sh', p.shield), cu = num('pc', p.curse), ch = num('ch', p.charge), fo = num('fo', p.focus || 0);
     let h = '';
-    if (sh) h += chip('shield', `シールド ${sh}`, 'shield'); if (cu) h += chip('curse', `呪い ${cu}`, 'curse'); if (ch) h += chip('charge', `たまり ${ch}`, 'charge');
+    if (sh) h += chip('shield', `シールド ${sh}`, 'shield'); if (cu) h += chip('curse', `呪い ${cu}`, 'curse'); if (ch) h += chip('charge', `たまり ${ch}`, 'charge'); if (fo) h += chip('charge', `力だめ ${fo}`, 'focus');
     $('#player-status').innerHTML = h || chip('none', '状態なし');
   }
   const cellEl = i => $(`#board .cell[data-cell="${i}"]`);
@@ -259,8 +262,9 @@
     }
     const card = s.cards[id], def = R.B[card.type], lv = lvOf(card.type), cell = s.board.indexOf(id);
     let h = `<h3>${def.name}${lv > 1 ? ` Lv${lv}` : ''} <span class="fam" style="background:${FAM_COLOR[def.fam]}">${R.FAMS[def.fam]}</span></h3><p>${tipify(bText(card.type, lv))}</p>`;
-    if (def.kw) h += `<p class="kw"><b>${R.KW[def.kw].name}</b>：${R.KW[def.kw].text}</p>`;
-    if (ABIL && def.face) for (const k of Object.values(def.face)) if (R.KW[k]) h += `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`; // 攻め・守り版：もう1つの顔の ことば も出す
+    if (def.kw && kwShown(def.kw)) h += `<p class="kw"><b>${R.KW[def.kw].name}</b>：${R.KW[def.kw].text}</p>`;
+    const ft = R.faceTable(card.type, ABIL);
+    if (ft) for (const k of Object.values(ft)) if (k && R.KW[k] && k !== def.kw) h += `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`; // 攻め・守り版：もう1つの顔の ことば も出す
     h += `<p class="sub">${R.FAM_HINT[def.fam]}</p>`;
     if (cell >= 0) {
       const sum = R.summary(G.busy ? G.preD : R.derive(s), cell);
@@ -417,7 +421,7 @@
   }
   const nameAt = c => R.B[G.pre.cards[G.pre.board[c]].type].name;
   function show(e) {
-    G.view = { eh: e.eh, ph: e.ph, sh: e.sh, es: e.es, pc: e.pc, ch: e.ch };
+    G.view = { eh: e.eh, ph: e.ph, sh: e.sh, es: e.es, pc: e.pc, ch: e.ch, fo: e.fo };
     renderEnemy(); renderPlayer();
     switch (e.t) {
       case 'shield': e.cells.forEach(fxCell); log('lp', `盾：シールド+${e.add}`); sfx('place'); return 240;
@@ -428,7 +432,8 @@
         if (e.dodged) { slot('#enemy-dmg', 'よけられた', `合計 ${G.turnSum.e}`); log('lp', `${nm}：よけられた`); sfx('bad'); return 200; }
         G.turnSum.e += e.dmg;
         slot('#enemy-dmg', `−${e.dmg}`, `合計 ${G.turnSum.e}`);
-        const ex = []; if (e.charge) ex.push(`たまり+${e.charge}`); if (e.fire) ex.push(`炎+${e.fire}`); if (e.armorCut) ex.push(`装甲−${e.armorCut}`); if (e.guardCut) ex.push(`結界−${e.guardCut}`); if (e.heal) ex.push(`HP+${e.heal}`);
+        if (e.might) CHECK.faceGifts.might = (CHECK.faceGifts.might || 0) + 1; // 再生の攻め（?abil=2）
+        const ex = []; if (e.might) ex.push(`再生の攻め+${e.might}`); if (e.focus) ex.push(`力だめ+${e.focus}`); if (e.charge) ex.push(`たまり+${e.charge}`); if (e.fire) ex.push(`炎+${e.fire}`); if (e.armorCut) ex.push(`装甲−${e.armorCut}`); if (e.guardCut) ex.push(`結界−${e.guardCut}`); if (e.heal) ex.push(`HP+${e.heal}`);
         log('lp', `${nm}：${e.dmg}ダメージ` + (ex.length ? `（${ex.join('、')}）` : ''));
         const pt2 = $('#enemy-portrait'); pt2.classList.remove('fx-hit'); void pt2.offsetWidth; pt2.classList.add('fx-hit');
         sfx('hit', e.dmg); return 230;
@@ -436,10 +441,15 @@
       case 'gift': {
         if (e.src && e.src !== e.kind) CHECK.faceGifts[e.kind] = (CHECK.faceGifts[e.kind] || 0) + 1; // 攻め・守り版で、もう1つの顔（弱る・たまり）が働いた（種類ごと）
         fxCell(e.cell);
-        const nm = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', regen: 'HP', charge: 'たまり', frail: '弱る' }[e.kind];
+        const nm = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', regen: 'HP', charge: 'たまり', frail: '弱る', focus: '力だめ' }[e.kind];
+        if (e.kind === 'ember') { G.turnSum.e += e.n; slot('#enemy-dmg', `−${e.n}`, '火の粉'); log('lp', `炎：火の粉 ${e.n}ダメージ`); return 160; }
         if (e.kind === 'regen') { if (e.n > 0) slot('#player-dmg', `+${e.n}`, '回復', 'heal'); else return 60; } // HPが満タンのときは、きろくに書かない
         log('lp', `${R.B[e.src || e.kind].name}：${nm}+${e.n}`); return 130;
       }
+      case 'ward':
+        CHECK.faceGifts.ward = (CHECK.faceGifts.ward || 0) + 1; fxCell(e.cell);
+        if (e.sh > 0) slot('#player-dmg', `+${e.sh}`, `毒${e.n}を シールドに`, 'heal');
+        log('lp', `毒消費：毒${e.n}を消して シールド+${e.sh}`); return e.sh > 0 ? 260 : 60;
       case 'consume': fxCell(e.cell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, `毒${e.n}を消費`); log('lp', `毒消費：毒${e.n}を消して ${e.dmg}ダメージ`); sfx('big'); return 300;
       case 'shock': G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '感電！ 次は1個多く引く'); log('lp', `感電：${e.dmg}ダメージ。次のターン 1個多く引く`); sfx('big'); return 320;
       case 'freeze': slot('#enemy-dmg', '凍結！', '敵の攻撃が半分'); log('lp', '凍結：このターンの敵の攻撃が半分'); sfx('big'); return 300;
@@ -448,8 +458,9 @@
       case 'ehit': {
         if (e.dodged) { e.cells.forEach(fxCell); slot('#player-dmg', 'よけた', ''); log('le', `　攻撃${e.raw} → よけた`); return 240; }
         G.turnSum.p += e.dmg;
-        const cut = []; if (e.frail) cut.push(`弱る−${e.frail}`); if (e.ice) cut.push(`凍結−${e.ice}`); if (e.tough) cut.push(`堅牢−${e.tough}`); if (e.shield) cut.push(`シールド−${e.shield}`);
-        slot('#player-dmg', `−${e.dmg}`, cut.length ? `防いだ ${(e.frail || 0) + e.ice + e.tough + e.shield}` : ''); // くわしい内訳は「きろく」に出す（ここに全部書くと、せまい列で切れた）
+        if (e.brace) { CHECK.faceGifts.brace = (CHECK.faceGifts.brace || 0) + 1; (e.braceCells || []).forEach(fxCell); }
+        const cut = []; if (e.frail) cut.push(`弱る−${e.frail}`); if (e.brace) cut.push(`蓄積の守り−${e.brace}`); if (e.ice) cut.push(`凍結−${e.ice}`); if (e.tough) cut.push(`堅牢−${e.tough}`); if (e.shield) cut.push(`シールド−${e.shield}`);
+        slot('#player-dmg', `−${e.dmg}`, cut.length ? `防いだ ${(e.frail || 0) + (e.brace || 0) + e.ice + e.tough + e.shield}` : ''); // くわしい内訳は「きろく」に出す（ここに全部書くと、せまい列で切れた）
         log('le', `　攻撃${e.raw} → ${e.dmg}ダメージ` + (cut.length ? `（${cut.join('、')}）` : '')); sfx('ehit'); return 250;
       }
       case 'reflect': e.cells.forEach(fxCell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, '反射'); log('lp', `反射：${e.dmg}ダメージ`); return 240;
@@ -475,7 +486,7 @@
     const s = G.s, f = R.forecast(s), turn = s.turn, e0 = s.stats.total, p0 = s.stats.taken;
     G.sel = null; G.pre = R.cloneState(s); G.preD = R.derive(G.pre); G.gone = {}; G.lastAct = null; // 負けの画面に出す「さいごの敵の行動」。敵が本当に動いたとき（eact）にだけ入る
     const ev = R.endTurn(s);
-    G.busy = true; G.turnSum = { e: 0, p: 0 }; G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen, G.pre.e.frail], pc: G.pre.p.curse, ch: G.pre.p.charge };
+    G.busy = true; G.turnSum = { e: 0, p: 0 }; G.view = { eh: G.pre.e.hp, ph: G.pre.p.hp, sh: G.pre.p.shield, es: [G.pre.e.poison, G.pre.e.fire, G.pre.e.ice, G.pre.e.shock, G.pre.e.guard, G.pre.e.frozen, G.pre.e.frail], pc: G.pre.p.curse, ch: G.pre.p.charge, fo: G.pre.p.focus || 0 };
     renderAll();
     for (const e of ev) { const ms = show(e); if (G.speed > 0 && ms) await sleep(ms / G.speed); }
     $('#intent-box').classList.remove('fx-act');
@@ -573,11 +584,11 @@
       <p>2. <b>凸</b>が、となりのブロックの<b>凹</b>に向かい合うと「はまる」。能力は 凸 → 凹 に わたる。わたした側は、自分では働かない。わたさない能力ブロックは、自分で1回 働く（半分の力）。</p>
       <p>3. 受け取ったものは、次のブロックへは わたらない。</p>
       <p>4. 「発動！」の順番：① 防御 → ② 番号の順（左上から）に、攻撃と「自分で働く能力」→ ③ 敵の行動 → ④ ターンの終わり。シールドは、前のターンから残った分 → 左上の盾の分、の順に使う。</p>` + (ABIL ? `
-      <p>（攻め・守り版 ?abil=1）毒と再生は、<b>攻撃に のせると「攻め」</b>、<b>防御に のせると「守り」</b>の働きになる。ひとりのときと、能力に のせたときは「攻め」（ひとりは半分の力）。</p>` : '') + `
+      <p>（攻め・守り版 ?abil=${ABIL}）${ABIL === 2 ? '毒・炎・再生・毒消費・蓄積' : '毒と再生'}は、<b>攻撃に のせると「攻め」</b>、<b>防御に のせると「守り」</b>の働きになる。ひとりのときと、能力に のせたときは「攻め」（ひとりは半分の力${ABIL === 2 ? '。再生は ひとりなら HP' : ''}）。</p>` : '') + `
       <p>5. ターンの終わりに、手札は全部 捨て札へ。山札がなくなったら、捨て札を切り直す。</p>
       <h3>4つの系統（色と形で分かる）</h3>` +
       ['atk', 'def', 'abil', 'enh'].map(f => `<p><span class="fam" style="background:${FAM_COLOR[f]}">${R.FAMS[f]}</span> ${R.FAM_HINT[f]}</p>`).join('') +
-      `<h3>ことば</h3>` + Object.keys(R.KW).map(k => `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`).join('') +
+      `<h3>ことば</h3>` + Object.keys(R.KW).filter(kwShown).map(k => `<p class="kw"><b>${R.KW[k].name}</b>：${R.KW[k].text}</p>`).join('') +
       `<p class="kw"><b>封印</b>：そのブロックは、凸も凹も はまらない（自分では働く）。　<b>がれき</b>：そのマスに置けない。　<b>破壊</b>：いちばん多く はまっているブロックが、この戦いから消える（盤面に「破壊」の印が出る）。</p>
       <h3>ブロック一覧</h3><div class="cat" id="cat"></div><div class="row"><button class="btn primary" id="help-close">とじる</button></div>`;
     $('#help-sheet').innerHTML = h;
@@ -714,6 +725,7 @@
           Object.assign(s.e, { poison: 3, fire: 1, ice: 2, shock: 2, frail: 2, frozen: 1, guard: 5 }); Object.assign(s.p, { shield: 4, curse: 2, charge: 5 });
           s.sealed = [s.hand[0]]; s.blocked = [6];
           s.intent = { label: 'ことばの場面', rage: true, parts: [{ k: 'destroy', n: 1 }, { k: 'rubble', n: 2 }, { k: 'cleanse' }], cells: { rubble: [8, 13] } }; // 予告は3行まで（本物の戦いは2行まで。多すぎると左の列が あふれる）
+          if (ABIL === 2) { s.p.charge = 0; s.p.focus = 5; s.cards[s.hand[1]].type = 'fire'; G.hoverId = s.hand[1]; } // 版2：力だめ（印）と 火の粉（炎の説明の文の中）も出す
           R.put(s, s.hand[0], 11); renderAll(); checkTips(true); sampleLayout();
           CHECK.stopped = true; writeCheck(); return;
         }

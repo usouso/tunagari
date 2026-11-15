@@ -7,13 +7,15 @@
  *   node bot.js use        … ブロックの使われ方（能力を 攻撃／防御 に わたした・自分で働いた の割合を、敵ごとに）
  *   node bot.js picks      … ごほうびのブロックごとに、取った周回と取らなかった周回の成績
  *   node bot.js hand       … 引く数 5・6・7・8 の くらべ
- *   オプション: n=<回数>  pick=random|sim|none
+ *   node bot.js route      … 能力の行き先（攻撃か防御か）で、どれだけ考える余地があるか（能力の種類ごと・敵ごと）
+ *   オプション: n=<回数>  pick=random|sim|none  abil=1|2（攻め・守り版）  atk=1（攻撃ブロックの くらべる版）
  * 前提: ボットは1ターン先しか読まない（置き方は ていねいに さがす）。人より計算は正確だが、先の計画は下手。
  */
 const R = require('./rules.js'), Bot = require('./botcore.js');
 const args = process.argv.slice(2), cmd = args.find(a => a.indexOf('=') < 0) || 'runs';
 const arg = (k, d) => { const a = args.find(x => x.startsWith(k + '=')); return a ? a.split('=')[1] : d; };
 const NN = +arg('n', 0);
+const VX = { abil: +arg('abil', 0), atkx: arg('atk', '0') === '1' }; // くらべる版の切りかえ（画面の ?abil= / ?atk= と同じ）
 const pct = (a, b) => (b ? Math.round(a / b * 100) + '%' : '–').padStart(4);
 const f1 = x => (isFinite(x) ? x.toFixed(1) : '–');
 const pad = (s, n) => { s = String(s); let w = 0; for (const ch of s) w += ch.charCodeAt(0) > 255 ? 2 : 1; return s + ' '.repeat(Math.max(0, n - w)); };
@@ -26,7 +28,7 @@ function runs() {
     if (pick === 'sim' && arg('pick') === 'nosim') continue;
     let wins = 0, st = 0; const per = {}, byStage = [0, 0, 0, 0, 0];
     for (let seed = 1; seed <= n; seed++) {
-      const r = Bot.playRun(seed, { style, pick, noRemove: arg('remove') === '0' });
+      const r = Bot.playRun(seed, { ...VX, style, pick, noRemove: arg('remove') === '0' });
       if (r.won) wins++;
       for (const f of r.fights) {
         const k = per[f.enemy] = per[f.enemy] || { n: 0, w: 0, t: 0, hp: 0 }; k.n++;
@@ -49,7 +51,7 @@ function stage() {
         for (let seed = 1; seed <= n; seed++) {
           const deck = R.START_DECK.map(c => c.slice());
           for (let k = 0; k < st * 2; k++) deck.push([R.TYPES[(rand() * R.TYPES.length) | 0], (rand() * 4) | 0]);
-          const s = R.newFight({ enemyId: id, stage: st, deck, seed: seed * 13 + st, hp: 100 });
+          const s = R.newFight({ ...VX, enemyId: id, stage: st, deck, seed: seed * 13 + st, hp: 100 });
           Bot.playFight(s, { style });
           if (s.phase === 'won') { w++; t += s.turn; hp += 100 - s.p.hp; }
           dmg += s.stats.total; tt += s.turn;
@@ -78,7 +80,7 @@ function adapt() {
     const turnAt = 1 + (k % 3), seed = 1000 + k;
     const st = {}, lay = {};
     for (const id of ids) {
-      const s = R.newFight({ enemyId: id, stage: 1, deck, seed });
+      const s = R.newFight({ ...VX, enemyId: id, stage: 1, deck, seed });
       // 同じ手札にそろえる：何も置かずにターンを進める（引く順は種で決まり、敵によらない…封印・がれき・感電がなければ）
       for (let t = 1; t < turnAt; t++) R.endTurn(s);
       st[id] = s; lay[id] = Bot.search(s, { style: 'smart' });
@@ -112,7 +114,7 @@ function use() {
   for (const id of R.ENEMY_IDS) { by[id] = { atk: 0, def: 0, solo: 0, abil: 0, enhOn: 0, enhOff: 0, ampAtk: 0, ampDef: 0, ampAbil: 0, turns: 0, links: 0, pieces: 0 }; }
   const types = {};
   for (let seed = 1; seed <= n; seed++) {
-    Bot.playRun(seed, { style: 'smart', pick: 'random', onTurn: s => {
+    Bot.playRun(seed, { ...VX, style: 'smart', pick: 'random', onTurn: s => {
       const d = R.derive(s), b = by[s.enemyId]; b.turns++; b.links += d.links.filter(l => l.ok).length; b.pieces += d.cells.length;
       for (const c of d.cells) {
         const X = d.blk[c], t = types[X.type] = types[X.type] || { n: 0, atk: 0, def: 0, abil: 0, solo: 0, idle: 0 }; t.n++;
@@ -139,7 +141,7 @@ function picks() {
   console.log(`ごほうびのブロックごとの成績（smart、でたらめに えらぶ、5連戦 ${n}回）。取った周回と、取らなかった周回の「勝った戦いの数」。`);
   const t = {}; let all = 0;
   const res = [];
-  for (let seed = 1; seed <= n; seed++) { const r = Bot.playRun(seed, { style: 'smart', pick: 'random' }); const w = r.fights.filter(f => f.won).length; all += w; res.push({ added: r.run.added.slice(0, 6), w }); }
+  for (let seed = 1; seed <= n; seed++) { const r = Bot.playRun(seed, { ...VX, style: 'smart', pick: 'random' }); const w = r.fights.filter(f => f.won).length; all += w; res.push({ added: r.run.added.slice(0, 6), w }); }
   for (const type of R.TYPES) {
     let a = 0, an = 0, b = 0, bn = 0;
     for (const x of res) { if (x.added.indexOf(type) >= 0) { a += x.w; an++; } else { b += x.w; bn++; } }
@@ -155,11 +157,55 @@ function hand() {
   console.log(`引く数の くらべ（smart、ごほうびは でたらめ、5連戦 ${n}回）`);
   for (const h of [5, 6, 7, 8]) {
     let st = 0, wins = 0, turns = 0, fights = 0;
-    for (let seed = 1; seed <= n; seed++) { const x = Bot.playRun(seed, { style: 'smart', pick: 'random', hand: h }); if (x.won) wins++; st += x.fights.filter(f => f.won).length; for (const f of x.fights) if (f.won) { turns += f.turns; fights++; } }
+    for (let seed = 1; seed <= n; seed++) { const x = Bot.playRun(seed, { ...VX, style: 'smart', pick: 'random', hand: h }); if (x.won) wins++; st += x.fights.filter(f => f.won).length; for (const f of x.fights) if (f.won) { turns += f.turns; fights++; } }
     console.log(`${h}個  クリア ${pct(wins, n)} 戦 ${f1(st / n)}  勝った戦いのターン ${f1(turns / fights)}`);
   }
 }
 
 const t0 = Date.now();
-({ runs, stage, adapt, use, picks, hand }[cmd] || runs)();
+// 能力の行き先（攻撃か防御か）で、考える余地があるか。
+// ボット（smart）が選んだ盤面で、わたしている能力1つの行き先だけを、盤面の別の攻撃・防御ブロックに付けかえて（形は無視）、1ターンの点をくらべる。
+//   ほぼ同じ … 攻撃の いちばん良い先と、防御の いちばん良い先の差が 1点未満（どちらでもよい＝考える余地がない）
+//   回数の目安 … 「自分のヒット数と敵のヒット数の、多い方に わたす」が当たった割合（高いほど、数をくらべるだけで決まる）
+//   差の平均 … 40点で頭打ち（勝ちが決まる場面の 5000点を入れない）
+function route() {
+  const n = NN || 30, T = {}, E = {}, tot = { cases: 0, same: 0, bigger: 0, against: 0, tie: 0, gap: 0, atkWin: 0, defWin: 0 };
+  const blank = () => ({ cases: 0, same: 0, bigger: 0, against: 0, tie: 0, gap: 0, atkWin: 0, defWin: 0 });
+  let wins = 0, st = 0;
+  for (let seed = 1; seed <= n; seed++) {
+    const r = Bot.playRun(seed, { ...VX, style: 'smart', pick: 'random', onTurn: s => {
+      const d = R.derive(s);
+      const atk = d.cells.filter(c => d.blk[c].fam === 'atk'), def = d.cells.filter(c => d.blk[c].fam === 'def');
+      if (!atk.length || !def.length) return;
+      const eh = s.intent.parts.filter(p => p.k === 'atk').reduce((a, p) => a + p.hits, 0);
+      for (const c of d.cells) {
+        const A = d.blk[c]; if (A.fam !== 'abil' || !A.gives) continue;
+        const score = to => { const w = R.cloneState(s); w.__force = { from: c, to }; R.resolve(w, { sim: true }); return Bot.scoreOf(s, w, {}); };
+        const ba = Math.max(...atk.map(score)), bd = Math.max(...def.map(score));
+        const oh = Math.max(...atk.map(a => d.blk[a].atk.hits));
+        const add = t => {
+          t.cases++; t.gap += Math.min(40, Math.abs(ba - bd));
+          if (Math.abs(ba - bd) < 1) { t.same++; return; }
+          if (ba > bd) t.atkWin++; else t.defWin++;
+          if (oh === eh) t.tie++; else if ((oh > eh) === (ba > bd)) t.bigger++; else t.against++;
+        };
+        add(T[A.type] = T[A.type] || blank()); add(tot);
+        const ek = A.type + ':' + s.enemyId; add(E[ek] = E[ek] || blank());
+      }
+    } });
+    if (r.won) wins++; st += r.fights.filter(f => f.won).length;
+  }
+  console.log(`能力の行き先（smart、ごほうびは でたらめ、5連戦 ${n}回、abil=${VX.abil} atk=${VX.atkx ? 1 : 0}）  クリア ${pct(wins, n)}  勝った戦い ${f1(st / n)}`);
+  console.log('能力        場面  ほぼ同じ | 攻撃が上 防御が上 | 回数の目安 当たり/外れ/回数同じ | 差の平均');
+  for (const k of Object.keys(T).concat(['合計'])) {
+    const t = k === '合計' ? tot : T[k], dif = t.cases - t.same;
+    console.log(`${pad(R.B[k] ? R.B[k].name : k, 10)} ${String(t.cases).padStart(5)}  ${pct(t.same, t.cases)}    | ${pct(t.atkWin, dif)}    ${pct(t.defWin, dif)}   | ${pct(t.bigger, dif)} / ${pct(t.against, dif)} / ${pct(t.tie, dif)}  | ${f1(t.gap / t.cases)}`);
+  }
+  console.log('敵ごと（「攻撃が上」の割合。敵で ちがうほど、予告と性質で えらぶ先が変わる。場面が20未満は –）');
+  for (const k of Object.keys(T)) {
+    console.log(`  ${pad(R.B[k].name, 8)} ` + R.ENEMY_IDS.map(id => { const t = E[k + ':' + id]; const dif = t ? t.cases - t.same : 0; return `${pad(R.ENEMIES[id].name, 10)} ${t && t.cases >= 20 ? pct(t.atkWin, dif) : '   –'}`; }).join('  '));
+  }
+}
+
+({ runs, stage, adapt, use, picks, hand, route }[cmd] || runs)();
 console.log(`（${((Date.now() - t0) / 1000).toFixed(1)}秒）`);

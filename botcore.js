@@ -162,7 +162,7 @@
   function trial(run, deck, opt, lv) {
     const next = run.stage + 1, enemyId = run.order[next], K = opt.simFights || 3; let sc = 0;
     for (let k = 0; k < K; k++) {
-      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, hand: run.handSize, abil: run.abil });
+      const f = R.newFight({ enemyId, stage: next, deck, lv: lv || run.lv, seed: run.seed * 131 + next * 17 + k * 7 + 3, hp: run.hp, hand: run.handSize, abil: run.abil, atkx: run.atkx });
       playFight(f, { style: 'smart', restarts: 1, passes: 1, maxTurns: 14 });
       sc += f.phase === 'won' ? 200 + f.p.hp - f.turn : -(f.e.hp / f.e.max) * 100;
     }
@@ -192,7 +192,7 @@
   // 5連戦を最後まで自動で遊ぶ
   function playRun(seed, opt) {
     opt = opt || {};
-    const run = R.newRun(seed, { hand: opt.hand, order: opt.order, abil: opt.abil }), rand = lcg(seed * 977 + 5);
+    const run = R.newRun(seed, { hand: opt.hand, order: opt.order, abil: opt.abil, atkx: opt.atkx }), rand = lcg(seed * 977 + 5);
     const fights = [];
     let guard = 0;
     while (guard++ < 50) {

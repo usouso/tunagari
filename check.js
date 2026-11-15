@@ -62,6 +62,8 @@ async function main() {
     add(sn, w, h, pc, 'ブロックをえらんだ画面（はまるマスの表示）', 'auto=1&speed=0&seed=11&stop=2&pick=1', { stop: true, pick: true, shot: 'pick' });
     add(sn, w, h, pc, 'ごほうびの画面', 'auto=1&speed=0&seed=11&screen=reward', { stop: true, screen: 'reward', shot: 'reward' });
     if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版（?abil=1）5連戦 種11', 'auto=1&speed=0&seed=11&abil=1', { play: true, abil: true, shot: 'abil' });
+    if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版2（?abil=2）5連戦 種11', 'auto=1&speed=0&seed=11&abil=2', { play: true, abil2: true, shot: 'abil2' });
+    if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻撃くらべ版（?atk=1）5連戦 種11', 'auto=1&speed=0&seed=11&atk=1', { play: true, shot: 'atk1' });
     add(sn, w, h, pc, '回す操作（右クリック・R・ボタン・もう一度押す）', 'auto=1&speed=0&seed=11&scene=rotate', { stop: true, rotate: true });
     add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
     if (lite) continue;
@@ -76,6 +78,7 @@ async function main() {
       // 敵が動く前に負ける（HP1 で、攻撃ブロックを1個だけ置いて狂戦士をなぐる → トゲで負け）。負けの画面の文を見る
       // ことばの説明を全部 出す場面（状態と予告を直接つくる）。3体で、装甲・身かわし・トゲの説明も出す
       for (const id of ['golem', 'hunter', 'berserk']) add(sn, w, h, pc, `ことばの説明を全部 出す（${id}）`, `auto=1&speed=0&seed=11&enemy=${id}&scene=terms`, { stop: true, terms: true, shot: id === 'golem' ? 'terms' : null });
+      if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, 'ことばの説明を全部 出す（攻め・守り版2：力だめ・火の粉）', 'auto=1&speed=0&seed=11&enemy=golem&scene=terms&abil=2', { stop: true, terms: true });
       add(sn, w, h, pc, '敵が動く前に負ける（トゲ）', 'auto=1&speed=0&seed=11&enemy=berserk&hp=1&scene=thorn', { play: true, lose: true, early: true, shot: 'lose-thorn' });
     }
   }
@@ -101,6 +104,9 @@ async function main() {
       if (c.lose && !c.early && !(k.result && k.result.lastAct && (k.result.lastText || '').indexOf('さいごの敵の行動：' + k.result.lastAct) >= 0)) bad.push(`負けの画面に「さいごの敵の行動」が出ていない（${k.result ? k.result.lastText : ''}）`);
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
       if (c.abil && !(k.faceGifts && k.faceGifts.frail > 0 && k.faceGifts.charge > 0)) bad.push(`攻め・守り版なのに、弱る（毒の守り）と たまり（再生の攻め）の両方が働かなかった（${JSON.stringify(k.faceGifts)}）`);
+      if (c.abil2 && !(k.faceGifts && k.faceGifts.frail > 0 && k.faceGifts.might > 0)) bad.push(`攻め・守り版2なのに、弱る（毒の守り）と 再生の攻め（ヒットのダメージ+）の両方が働かなかった（${JSON.stringify(k.faceGifts)}）`);
+      if (c.abil2 && k.faceGifts && k.faceGifts.charge) bad.push('攻め・守り版2なのに たまり が出た');
+      if (c.abil2) total.faceGifts2 = Object.assign(total.faceGifts2 || {}, Object.fromEntries(Object.entries(k.faceGifts || {}).map(([a, b]) => [a, ((total.faceGifts2 || {})[a] || 0) + b])));
       total.weakLinks = (total.weakLinks || 0) + (k.weakLinks || 0);
       if (c.rotate && !(k.rotateScene && k.rotateScene.ok)) bad.push('回す操作の場面が最後まで行かなかった');
       if (c.play && !c.lose && !(k.rotates > 0)) bad.push('通しで、もう一度押して回す操作が1回も起きなかった');
@@ -137,6 +143,7 @@ async function main() {
   console.log(`ことばの説明を出してくらべた回数: ${total.tips}（出した ことば ${Object.keys(total.tipSeen).length} / ${needTerms.length}: ${Object.keys(total.tipSeen).sort().join(' ')}）`);
   if (!only && lackTerms.length) { console.log(`✗ 説明を1回も出していない ことば がある: ${lackTerms.join(' ')}（検査が足りない）`); fail++; }
   console.log(`小さく効く（点線の凸）を盤面の絵とくらべた数: ${total.weakLinks || 0}`);
+  if (total.faceGifts2) console.log(`攻め・守り版2で働いた「もう1つの顔」: ${JSON.stringify(total.faceGifts2)}`);
   if (!only && !(total.weakLinks > 0)) { console.log('✗ 小さく効く が1回も盤面に出なかった（検査が足りない）'); fail++; }
   console.log(`画面の検査${only ? `（only=${only}。一部だけ）` : ''}: ${n - fail} / ${n} 合格、失敗 ${fail}`);
   process.exit(fail ? 1 : 0);

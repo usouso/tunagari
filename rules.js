@@ -31,31 +31,32 @@
     slash:   { fam: 'atk',  name: '斬撃',     g: '斬', v: [6, 9, 12], hits: 1, sh: [-1, 0, 0, -1],
                txt: v => `${v}ダメージ ×1ヒット。` },
     shot:    { fam: 'atk',  name: '射撃',     g: '射', v: [2, 3, 4], hits: 2, sh: [0, -1, 0, -1],
-               txt: v => `${v}ダメージ ×2ヒット。` },
+               txt: v => `${v}ダメージ ×2ヒット。`, txtX: v => `${v}ダメージ ×3ヒット。` },
     area:    { fam: 'atk',  name: '範囲攻撃', g: '範', v: [3, 5, 7], hits: 1, sh: [-1, -1, -1, -1],
-               txt: v => `${v}ダメージ ×1ヒット。4つの辺が ぜんぶ凹。` },
+               txt: v => `${v}ダメージ ×1ヒット。4つの辺が ぜんぶ凹。`,
+               txtX: v => `${v}ダメージ。4つの辺が ぜんぶ凹。共鳴：受け取った能力が ちがう種類で2つなら2ヒット、3つなら3ヒット、4つなら4ヒット。` },
     shield:  { fam: 'def',  name: '盾',       g: '盾', v: [7, 10, 13], sh: [-1, -1, 0, 0],
                txt: v => `シールド+${v}。敵の攻撃を防ぐ。ターンの終わりに消える。` },
     tough:   { fam: 'def',  name: '堅牢',     g: '堅', v: [2, 3, 4], sh: [-1, 0, 0, 0],
                txt: v => `敵のヒット1回ごとに 受けるダメージ−${v}。` },
     dodge:   { fam: 'def',  name: '回避',     g: '避', v: [1, 2, 3], sh: [-1, 0, 0, 0],
-               txt: v => `敵の最初のヒットを ${v}回 よける。` },
-    poison:  { fam: 'abil', name: '毒',       g: '毒', v: [2, 3, 4], sh: [0, 1, 0, -1], kw: 'poison', face: { def: 'frail' },
-               txt: v => `毒+${v}。`, txt2: v => `攻め：毒+${v}。 守り：弱る+${v}。` },
-    fire:    { fam: 'abil', name: '炎',       g: '炎', v: [1, 2, 3], sh: [-1, 1, 0, 0], kw: 'fire',
-               txt: v => `炎+${v}。` },
+               txt: v => `このターン、敵のヒットを はじめの${v}回 よける。` },
+    poison:  { fam: 'abil', name: '毒',       g: '毒', v: [2, 3, 4], sh: [0, 1, 0, -1], kw: 'poison', face: { def: 'frail' }, f2: { def: 'frail' },
+               txt: v => `毒+${v}。`, txt2: v => `攻め：毒+${v}。 守り：弱る+${v}。`, txt3: v => `攻め：毒+${v}。 守り：弱る+${v}。` },
+    fire:    { fam: 'abil', name: '炎',       g: '炎', v: [1, 2, 3], sh: [-1, 1, 0, 0], kw: 'fire', f2: { def: 'ember' },
+               txt: v => `炎+${v}。`, txt3: v => `攻め：炎+${v}。 守り：火の粉${v}。` },
     ice:     { fam: 'abil', name: '氷',       g: '氷', v: [2, 3, 4], sh: [0, 1, 0, -1], kw: 'ice',
                txt: v => `氷+${v}。` },
     shock:   { fam: 'abil', name: '雷',       g: '雷', v: [2, 3, 4], sh: [0, 1, -1, 0], kw: 'shock',
                txt: v => `雷+${v}。` },
-    regen:   { fam: 'abil', name: '再生',     g: '癒', v: [2, 3, 4], sh: [0, 1, 0, -1], face: { atk: 'charge' },
-               txt: v => `HP+${v}。`, txt2: v => `攻め：たまり+${v}。 守り：HP+${v}。` },
+    regen:   { fam: 'abil', name: '再生',     g: '癒', v: [2, 3, 4], sh: [0, 1, 0, -1], face: { atk: 'charge' }, f2: { atk: 'might', self: null },
+               txt: v => `HP+${v}。`, txt2: v => `攻め：たまり+${v}。 守り：HP+${v}。`, txt3: v => `攻め：ヒットのダメージ+${v}。 守り・ひとり：HP+${v}。` },
     chase:   { fam: 'abil', name: '追撃',     g: '追', v: [2, 3, 4], sh: [-1, 1, 0, 0],
                txt: v => `${v}ダメージの追加ヒット。敵の状態1種類ごとに ダメージ+${v}。` },
-    consume: { fam: 'abil', name: '毒消費',   g: '消', v: [2, 3, 4], sh: [0, 1, -1, 0],
-               txt: v => `敵の毒を全部消して、消した数×${v} のダメージ。` },
-    charge:  { fam: 'abil', name: '蓄積',     g: '蓄', v: [3, 5, 7], sh: [0, 1, 0, -1], kw: 'charge',
-               txt: v => `たまり+${v}。` },
+    consume: { fam: 'abil', name: '毒消費',   g: '消', v: [2, 3, 4], sh: [0, 1, -1, 0], f2: { def: 'ward' },
+               txt: v => `敵の毒を全部消して、消した数×${v} のダメージ。`, txt3: v => `敵の毒を全部消して、攻め：消した数×${v} のダメージ。 守り：消した数×${v * 2} のシールド。` },
+    charge:  { fam: 'abil', name: '蓄積',     g: '蓄', v: [3, 5, 7], sh: [0, 1, 0, -1], kw: 'charge', f2: { atk: 'focus', def: 'brace', self: 'focus' },
+               txt: v => `たまり+${v}。`, txt3: v => `攻め：力だめ+${v}。 守り：敵の最初のヒット−${v}。` },
     amp:     { fam: 'enh',  name: '増幅',     g: '増', v: [2, 2.5, 3], sh: [0, 1, 0, 0],
                txt: v => `わたした相手の数字が ${v}倍。` },
     haste:   { fam: 'enh',  name: '加速',     g: '速', v: [1, 2, 3], sh: [0, 1, 0, 0],
@@ -93,6 +94,9 @@
     shock:  { name: '雷', text: `${SHOCK_AT}たまると感電：${SHOCK_DMG}ダメージと、次のターン 1個多く引く。` },
     charge: { name: 'たまり', text: '次のターンから、最初に当たったヒットに ぜんぶ のる。' },
     frail:  { name: '弱る', text: '敵のヒットのダメージが、1回ごとに 弱るの数だけ へる。ターンの終わりに半分にへる。' },
+    // 攻め・守り版2（?abil=2）だけで出る ことば
+    ember:  { name: '火の粉', text: '敵のヒットを受けるたびに、この数だけ 敵にダメージ。ヒットではないので、装甲・結界・身かわしに止められない。' },
+    focus:  { name: '力だめ', text: 'このターン、次に当たるヒットのダメージに ぜんぶ のる。ターンの終わりに消える。' },
   };
   const STATUS_NAMES = { poison: '毒', fire: '炎', ice: '氷', shock: '雷', frail: '弱る' };
   const CLEANSE_TEXT = '毒・炎・氷・雷・弱る・凍結'; // 脱皮が消すもの（予告の文と ことばの説明が同じものを使う）
@@ -106,6 +110,8 @@
     shock:   { name: '雷', text: () => KW.shock.text },
     charge:  { name: 'たまり', text: () => KW.charge.text },
     frail:   { name: '弱る', text: () => KW.frail.text },
+    ember:   { name: '火の粉', text: () => KW.ember.text },
+    focus:   { name: '力だめ', text: () => KW.focus.text },
     frozen:  { name: '凍結', text: () => 'このターン、敵の攻撃のダメージが半分になる。' },
     shield:  { name: 'シールド', text: () => '敵の攻撃と トゲを、この数だけ防ぐ。ターンの終わりに消える。前のターンから残った分 → 左上の盾の分、の順に使う。' },
     curse:   { name: '呪い', text: () => 'ターンの終わりに 呪いの数だけダメージ（シールドで防げない）。そのあと1へる。' },
@@ -127,11 +133,19 @@
   const lvOf = (lv, type) => Math.min(maxLv(type), (lv && lv[type]) || 1);
   const val = (lv, type) => B[type].v[lvOf(lv, type) - 1];
   // abil … 「攻め／守り」の くらべる版（?abil=1）。毒・再生だけ、受け取る側で働きが変わる
-  function blockText(type, lv, abil) { const d = B[type], f = abil && d.txt2 ? d.txt2 : d.txt; return f(d.v[Math.min(d.v.length, lv || 1) - 1]); }
+  //   abil=2 … 攻め・守り版2（毒・炎・再生・毒消費・蓄積。たまりは なし）。 atkx … 攻撃ブロックの くらべる版（?atk=1：射撃3ヒット、範囲攻撃は共鳴）
+  function blockText(type, lv, abil, atkx) {
+    const d = B[type], a = abil | 0;
+    const f = atkx && d.txtX ? d.txtX : a === 2 && d.txt3 ? d.txt3 : a === 1 && d.txt2 ? d.txt2 : d.txt;
+    return f(d.v[Math.min(d.v.length, lv || 1) - 1]);
+  }
+  const faceTable = (type, abil) => (B[type] ? ((abil | 0) === 2 ? B[type].f2 : (abil | 0) === 1 ? B[type].face : null) : null);
   // 能力の「顔」：?abil=1 のとき、防御が受け取ると守り（face.def）、それ以外（攻撃・ひとり・能力が受け取る）は攻め（face.atk）の働きになる
+  //   abil=2 は「ひとり・能力が受け取る」の顔（self）を別に持てる（再生は ひとりなら HP のまま）
   function faceOf(g, fam, abil) {
-    const f = abil && B[g.kind] && B[g.kind].face; if (!f) return g;
-    const k = fam === 'def' ? f.def : f.atk; return k ? Object.assign({}, g, { kind: k, from: g.kind }) : g;
+    const f = faceTable(g.kind, abil); if (!f) return g;
+    const k = fam === 'def' ? f.def : fam === 'atk' ? f.atk : (f.self !== undefined ? f.self : f.atk);
+    return k ? Object.assign({}, g, { kind: k, from: g.kind }) : g;
   }
 
   // はじめのデッキ（種類, 向き）。14個。受け取る側（攻撃・防御）8個、わたす側（能力・強化）6個。
@@ -208,7 +222,7 @@
     const targetsAll = cells.filter(i => blk[i].fam === 'atk' || blk[i].fam === 'def');
     // 3. 能力ブロック：わたすか、自分で働くか。
     //    わたす相手が能力ブロックのときは、その相手が「自分で働く」ときだけ効く（わたす側になった相手には、とどかない）。
-    const abil = !!s.abil;
+    const abil = s.abil | 0;
     const state = {}; // cell → 1 計算中 / 2 すんだ
     function settle(i) {
       const A = blk[i]; if (state[i] === 2) return A.gives; if (state[i] === 1) return false; // 輪になっているときは、先に見た方が「わたす側」
@@ -229,6 +243,8 @@
     for (const i of cells) {
       const A = blk[i]; if (A.fam !== 'abil') continue;
       A.gift = giftOf(A);
+      // 測定用（bot.js route）：わたす先を 形と関係なく1つに決める。ふつうの遊びでは使わない
+      if (s.__force && s.__force.from === i) { A.gives = true; blk[s.__force.to].got.push(faceOf(A.gift, blk[s.__force.to].fam, abil)); continue; }
       if (!A.gives) continue;
       for (const ln of A.outs) if (ln.ok) blk[ln.to].got.push(faceOf(A.gift, blk[ln.to].fam, abil));
       for (const t of A.spreadTo) blk[t].got.push(faceOf(A.gift, blk[t].fam, abil));
@@ -237,7 +253,7 @@
     const d = {
       blk, links, cells, atk: [], solo: [], order: [], abil,
       shieldGain: 0, shieldCells: [], shields: [], tough: 0, toughCells: [], toughs: [], dodge: 0, dodgeCells: [],
-      defGifts: [],
+      defGifts: [], brace: 0, braceCells: [],
       sustain: { poison: false, fire: false }, fireKeep: V('sustain') / 100, retain: [], lv,
     };
     for (const i of cells) {
@@ -245,7 +261,10 @@
       const mult = multOf(m), again = againOf(m);
       if (m.refire) d.retain.push(X.id);
       if (X.fam === 'atk') {
-        const a = { cell: i, type: X.type, dmg: rd(v * mult), hits: B[X.type].hits + again - 1, pierce: !!m.pierce, bonus: (m.pierce || 0) * V('pierce'),
+        // ?atk=1：射撃は3ヒット。範囲攻撃は「共鳴」＝受け取った能力の ちがう種類の数だけヒット（1つ以下なら1ヒット）
+        const base = !s.atkx ? B[X.type].hits : X.type === 'shot' ? 3 : X.type === 'area' ? Math.max(1, new Set(X.got.map(g => g.from || g.kind)).size) : B[X.type].hits;
+        const might = X.got.reduce((t, g) => t + (g.kind === 'might' ? g.amt * g.times : 0), 0); // 再生の攻め（?abil=2）：ヒットのダメージ+
+        const a = { cell: i, type: X.type, dmg: rd(v * mult), might, hits: base + again - 1, pierce: !!m.pierce, bonus: (m.pierce || 0) * V('pierce'),
                     convert: (m.convert || 0) * V('convert') / 100, counter: m.counter || 0, counterMult: V('counter') / 100, leech: (m.leech || 0) * V('leech') / 100, gifts: X.got };
         X.atk = a; d.atk.push(a); d.order.push(i);
       } else if (X.fam === 'def') {
@@ -255,7 +274,10 @@
         if (X.type === 'shield') { d.shieldGain += n; d.shieldCells.push(i); d.shields.push(own); }
         else if (X.type === 'tough') { d.tough += n; d.toughCells.push(i); d.toughs.push(own); }
         else { d.dodge += n; d.dodgeCells.push(i); }
-        for (const g of X.got) d.defGifts.push({ g, at: i });
+        for (const g of X.got) {
+          if (g.kind === 'brace') { d.brace += g.amt * g.times; if (d.braceCells.indexOf(i) < 0) d.braceCells.push(i); } // 蓄積の守り（?abil=2）：敵の最初のヒットだけ へらす
+          else d.defGifts.push({ g, at: i });
+        }
       } else if (X.fam === 'abil') {
         if (m.sustain) d.sustain[X.type] = true;
         if (!X.gives) { X.soloGift = Object.assign({}, faceOf(X.gift, 'abil', abil), { amt: Math.ceil(X.gift.amt / 2) }); d.solo.push({ cell: i, gift: X.soloGift, extra: X.got }); d.order.push(i); } // ひとりは半分の力
@@ -280,11 +302,16 @@
     if (g.kind === 'chase') return `追撃${g.amt + (g.bonus || 0)}${g.pierce ? '（貫通）' : ''}${t}`;
     if (g.kind === 'consume') return `毒消費×${g.amt}${t}`;
     if (g.kind === 'charge') return `たまり+${g.amt}${t}`;
+    if (g.kind === 'ember') return `火の粉${g.amt}${t}`;
+    if (g.kind === 'might') return `ダメージ+${g.amt}${t}`;
+    if (g.kind === 'focus') return `力だめ+${g.amt}${t}`;
+    if (g.kind === 'brace') return `敵の最初のヒット−${g.amt * (g.times || 1)}`;
+    if (g.kind === 'ward') return `毒消費→シールド×${g.amt * 2}${t}`;
     return '';
   }
   // 札の上に出す短い字（種類の字は札に出ているので、数字だけ）
   function shortGift(g) {
-    const n = g.kind === 'chase' ? String(g.amt + (g.bonus || 0)) : g.kind === 'consume' ? `×${g.amt}` : `+${g.amt}`;
+    const n = g.kind === 'chase' || g.kind === 'ember' ? String(g.amt + (g.bonus || 0)) : g.kind === 'consume' ? `×${g.amt}` : g.kind === 'ward' ? `×${g.amt * 2}` : g.kind === 'brace' ? `−${g.amt}` : `+${g.amt}`;
     return g.times > 1 ? `${n} ${g.times}回` : n;
   }
   // 盤面のブロック1つが「いま何をするか」。 main … 札に大きく出す短い字、 lines … 説明の行、 idle … 働いていない
@@ -294,8 +321,8 @@
     const m = X.m, V = t => val(d.lv, t);
     if (X.sealed) out.lines.push('封印：このターン、凸も凹も はまらない。');
     if (X.fam === 'atk') {
-      const a = X.atk; out.main = `${a.dmg}×${a.hits}`;
-      out.lines.push(`${a.dmg}ダメージ ×${a.hits}ヒット`);
+      const a = X.atk; out.main = `${a.dmg + a.might}×${a.hits}`;
+      out.lines.push(`${a.dmg + a.might}ダメージ ×${a.hits}ヒット`);
       if (a.pierce) out.lines.push('装甲と結界を無視' + (a.bonus ? `（ヒット+${a.bonus}）` : ''));
       for (const g of a.gifts) out.lines.push(`ヒットごとに ${giftText(g)}`);
       if (a.convert) out.lines.push(`最初のヒットに ＋いまのシールドの${rd(a.convert * 100)}%`);
@@ -304,8 +331,8 @@
     } else if (X.fam === 'def') {
       if (X.type === 'shield') { out.main = `+${X.n}`; out.lines.push(`シールド+${X.n}`); if (m.sustain) out.lines.push(`この盾のシールドが${V('sustain')}%残る`); }
       else if (X.type === 'tough') { out.main = `−${X.n}`; out.lines.push(`敵のヒット1回ごとに −${X.n}`); }
-      else { out.main = `${X.n}回`; out.lines.push(`敵の最初のヒットを ${X.n}回 よける`); }
-      for (const g of X.got) out.lines.push(`敵のヒット1回ごとに ${giftText(g)}`);
+      else { out.main = `${X.n}回`; out.lines.push(`敵のヒットを はじめの${X.n}回 よける`); }
+      for (const g of X.got) out.lines.push(g.kind === 'brace' ? giftText(g) : `敵のヒット1回ごとに ${giftText(g)}`);
       if (m.mirror) out.lines.push(`このブロックが 敵の攻撃を防いだ分の${m.mirror * V('mirror')}%を返す`);
       if (m.leech) out.lines.push(`このブロックが 敵の攻撃を防いだ分の${m.leech * V('leech')}%回復`);
     } else if (X.fam === 'abil') {
@@ -313,7 +340,7 @@
       if (X.gives) {
         out.gives = true;
         const outs = X.outs.filter(ln => ln.ok);
-        if (d.abil && B[X.type].face) out.lines.push('わたしている（自分では働かない）：' + outs.map(ln => `${B[d.blk[ln.to].type].name}に ${giftText(faceOf(X.gift, d.blk[ln.to].fam, true))}`).join('・'));
+        if (faceTable(X.type, d.abil)) out.lines.push('わたしている（自分では働かない）：' + outs.map(ln => `${B[d.blk[ln.to].type].name}に ${giftText(faceOf(X.gift, d.blk[ln.to].fam, d.abil))}`).join('・'));
         else out.lines.push(`${giftText(X.gift)} を わたしている（自分では働かない）` + (outs.length ? `：${outs.map(ln => B[d.blk[ln.to].type].name).join('・')}` : ''));
         if (X.spreadTo.length) out.lines.push(`拡散：攻撃・防御ブロック ${X.spreadTo.length}個にも とどく`);
       } else {
@@ -441,10 +468,10 @@
     const cards = (o.deck || START_DECK).map((c, id) => (Array.isArray(c) ? { id, type: c[0], rot: c[1] & 3 } : { id, type: c.type, rot: c.rot & 3 }));
     const hp = Math.round(def.hp * STAGE_HP[stage]);
     const s = {
-      rs: (o.seed | 0) || 1, enemyId: o.enemyId, stage, turn: 0, phase: 'place', abil: !!o.abil, handSize: o.hand || HAND, lv: o.lv || {},
+      rs: (o.seed | 0) || 1, enemyId: o.enemyId, stage, turn: 0, phase: 'place', abil: o.abil | 0, atkx: !!o.atkx, handSize: o.hand || HAND, lv: o.lv || {},
       cards, deck: [], discard: [], gone: [], hand: [], board: new Array(N).fill(null),
       sealed: [], blocked: [], sealNext: 0, blockNext: [], drawBonus: 0,
-      p: { hp: o.hp || MAXHP, max: MAXHP, shield: 0, curse: 0, charge: 0, chargeNext: 0 },
+      p: { hp: o.hp || MAXHP, max: MAXHP, shield: 0, curse: 0, charge: 0, chargeNext: 0, focus: 0 },
       e: { id: o.enemyId, hp, max: hp, armor: def.armor || 0, evade: def.evade || 0, regen: def.regen || 0, thorns: def.thorns || 0,
            poison: 0, fire: 0, ice: 0, shock: 0, frail: 0, guard: 0, frozen: 0, cyc: 0, si: 0 },
       intent: null,
@@ -527,7 +554,7 @@
     const ev = []; const e = s.e, p = s.p, st = s.stats;
     const d = derive(s), blk = d.blk;
     let over = false, shocked = false, froze = false, hits = 0, evadeLeft = e.evade;
-    const snap = o => { o.eh = Math.max(0, e.hp); o.ph = Math.max(0, p.hp); o.sh = p.shield; o.es = [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen, e.frail]; o.pc = p.curse; o.ch = p.charge; ev.push(o); return o; };
+    const snap = o => { o.eh = Math.max(0, e.hp); o.ph = Math.max(0, p.hp); o.sh = p.shield; o.es = [e.poison, e.fire, e.ice, e.shock, e.guard, e.frozen, e.frail]; o.pc = p.curse; o.ch = p.charge; o.fo = p.focus || 0; ev.push(o); return o; };
     const credit = (k, n) => { if (n > 0) { st.dealt[k] = (st.dealt[k] || 0) + n; st.total += n; } };
     const hurtEnemy = n => { e.hp -= n; if (e.hp <= 0 && !over) { over = true; s.phase = 'won'; } };
     const hurtPlayer = n => { p.hp -= n; st.taken += n; if (p.hp <= 0 && !over) { over = true; s.phase = 'lost'; } };
@@ -547,24 +574,24 @@
     }
 
     // ヒット1回。 cell … 打ったブロック、 src … もとになったブロック（追撃なら追撃ブロック）
-    function hit(cell, base, kind, src, pierce, leech, bonus) {
+    function hit(cell, base, kind, src, pierce, leech, bonus, might) {
       if (over || hits >= HIT_CAP) return false;
       hits++;
       if (evadeLeft > 0) { evadeLeft--; snap({ t: 'hit', cell, src, kind, dodged: true, dmg: 0 }); return false; }
-      const ch = p.charge; p.charge = 0;
+      const ch = p.charge, fo = p.focus || 0; p.charge = 0; p.focus = 0; // たまり（ふつう）・力だめ（?abil=2）は 当たったヒットに ぜんぶ のる
       const fireB = e.fire;
-      let dmg = Math.max(0, rd(base)) + ch + fireB, armorCut = 0, guardCut = 0;
+      let dmg = Math.max(0, rd(base)) + ch + fo + fireB, armorCut = 0, guardCut = 0;
       if (pierce) dmg += bonus || 0;
       else {
         armorCut = Math.min(dmg, e.armor); dmg -= armorCut;
         guardCut = Math.min(dmg, e.guard); e.guard -= guardCut; dmg -= guardCut;
       }
-      const f = Math.min(fireB, dmg), c2 = Math.min(ch, dmg - f);
+      const f = Math.min(fireB, dmg), c2 = Math.min(ch + fo, dmg - f);
       credit('fire', f); credit('charge', c2); credit(kind === 'chase' ? 'chase' : blk[cell].type, dmg - f - c2);
       hurtEnemy(dmg);
       let heal = 0;
       if (leech > 0 && dmg > 0 && p.hp > 0) heal = healPlayer(rd(dmg * leech));
-      snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, armorCut, guardCut, heal });
+      snap({ t: 'hit', cell, src, kind, dmg, fire: f, charge: ch, focus: fo, might: might || 0, armorCut, guardCut, heal });
       if (!over && e.thorns > 0) {
         let t = e.thorns; const sc = absorb(t, null); t -= sc; st.blocked += sc; // トゲを防いだ分は、反射・吸収に数えない（文は「敵の攻撃を防いだ分」）
         if (t > 0) hurtPlayer(t);
@@ -589,6 +616,15 @@
           }
         } else if (g.kind === 'regen') { const h = healPlayer(g.amt); snap({ t: 'gift', kind: g.kind, src: g.from || g.kind, cell: g.cell, at, n: h }); }
         else if (g.kind === 'charge') { p.chargeNext += g.amt; snap({ t: 'gift', kind: g.kind, src: g.from || g.kind, cell: g.cell, at, n: g.amt }); }
+        // ここから ?abil=2 の顔
+        else if (g.kind === 'focus') { p.focus += g.amt; snap({ t: 'gift', kind: g.kind, src: g.from || g.kind, cell: g.cell, at, n: g.amt }); }
+        else if (g.kind === 'ember') { credit('ember', g.amt); hurtEnemy(g.amt); snap({ t: 'gift', kind: g.kind, src: g.from || g.kind, cell: g.cell, at, n: g.amt }); }
+        else if (g.kind === 'ward') {
+          const n = e.poison, sh = rd(n * g.amt * 2); e.poison = 0; // シールドは 防がないと得にならないので、ダメージの2倍
+          if (sh > 0) { pools.push({ cell: at, amt: sh, mirror: 0, leech: 0, keep: 0 }); p.shield += sh; }
+          snap({ t: 'ward', cell: g.cell, at, n, sh });
+        }
+        else if (g.kind === 'might') break; // 攻撃のヒットに 先に足してある（derive の might）
         else if (g.kind === 'consume') {
           const n = e.poison, cd = rd(n * g.amt); e.poison = 0;
           credit('consume', cd); if (cd > 0) hurtEnemy(cd); snap({ t: 'consume', cell: g.cell, at, n, dmg: cd });
@@ -602,7 +638,7 @@
       if (over) return;
       snap({ t: 'fire', cell: a.cell, mode, mult });
       for (let i = 0; i < a.hits && !over; i++) {
-        const ok = hit(a.cell, (a.dmg + (i === 0 ? p.shield * a.convert : 0)) * mult, 'atk', a.cell, a.pierce, a.leech, a.bonus);
+        const ok = hit(a.cell, (a.dmg + (a.might || 0) + (i === 0 ? p.shield * a.convert : 0)) * mult, 'atk', a.cell, a.pierce, a.leech, a.bonus, rd((a.might || 0) * mult));
         if (ok) for (const g of a.gifts) { if (over) break; use(g, a.cell); }
       }
     }
@@ -624,7 +660,7 @@
     if (!over) {
       e.guard = 0;
       const it = s.intent; snap({ t: 'eact', label: it.label });
-      const cUses = {}; let dodgeLeft = d.dodge;
+      const cUses = {}; let dodgeLeft = d.dodge, braceLeft = d.brace; // 蓄積の守り：最初に当たるヒットだけ
       for (const part of it.parts) {
         if (over) break;
         if (part.k === 'atk') {
@@ -634,6 +670,7 @@
             else {
               let dmg = part.dmg;
               const wk = Math.min(dmg, e.frail); dmg -= wk; // 弱る：1回ごとに へる（凍結より先）
+              const bc = Math.min(dmg, braceLeft); braceLeft = 0; dmg -= bc;
               const ic = e.frozen ? dmg - Math.ceil(dmg / 2) : 0; dmg -= ic;
               let tc = 0;
               for (const tg of d.toughs) {
@@ -642,9 +679,9 @@
                 if (tg.mirror > 0 && acc.cells.indexOf(tg.cell) < 0) acc.cells.push(tg.cell);
               }
               const sc = absorb(dmg, acc); dmg -= sc;
-              st.blocked += wk + ic + tc + sc;
+              st.blocked += wk + bc + ic + tc + sc;
               if (dmg > 0) hurtPlayer(dmg);
-              snap({ t: 'ehit', dmg, raw: part.dmg, frail: wk, ice: ic, tough: tc, shield: sc });
+              snap({ t: 'ehit', dmg, raw: part.dmg, frail: wk, brace: bc, braceCells: bc ? d.braceCells : undefined, ice: ic, tough: tc, shield: sc });
             }
             // 防御ブロックが受け取った能力：敵のヒット1回ごとに
             for (const x of d.defGifts) { if (over) break; use(x.g, x.at); }
@@ -681,7 +718,7 @@
     }
     if (!over) {
       if (e.regen > 0 && e.hp < e.max) { const n = Math.min(e.max - e.hp, e.regen); e.hp += n; snap({ t: 'eregen', n }); }
-      p.charge += p.chargeNext; p.chargeNext = 0;
+      p.charge += p.chargeNext; p.chargeNext = 0; p.focus = 0; // 力だめは このターンだけ
       p.shield = pools.reduce((a, q) => a + Math.floor(q.amt * q.keep), 0); // 持続強化を受け取った盾の分だけ残る
       // 手札を全部 捨て札へ。再発動のブロックは山札のいちばん上へ。破壊されたブロックは、この戦いから消える。
       const keep = [];
@@ -713,14 +750,14 @@
   // run.phase: 'fight' | 'reward'（ブロックをえらぶ）| 'remove'（1個はずす）| 'won' | 'lost'
   function newRun(seed, o) {
     o = o || {};
-    const run = { rs: ((seed | 0) || 1) ^ 0x5bd1e995, seed: (seed | 0) || 1, stage: 0, hp: MAXHP, max: MAXHP, abil: !!o.abil, handSize: o.hand || HAND,
+    const run = { rs: ((seed | 0) || 1) ^ 0x5bd1e995, seed: (seed | 0) || 1, stage: 0, hp: MAXHP, max: MAXHP, abil: o.abil | 0, atkx: !!o.atkx, handSize: o.hand || HAND,
                   deck: START_DECK.map(c => ({ type: c[0], rot: c[1] })), order: [], phase: 'fight', fight: null, reward: null, lv: {}, added: [], removed: [], ups: [] };
     run.order = o.order || shuffle(run, ENEMY_IDS.slice());
     startFight(run);
     return run;
   }
   function startFight(run) {
-    run.fight = newFight({ enemyId: run.order[run.stage], stage: run.stage, deck: run.deck, lv: Object.assign({}, run.lv), seed: run.seed * 31 + run.stage * 7919 + 17, hp: run.hp, hand: run.handSize, abil: run.abil });
+    run.fight = newFight({ enemyId: run.order[run.stage], stage: run.stage, deck: run.deck, lv: Object.assign({}, run.lv), seed: run.seed * 31 + run.stage * 7919 + 17, hp: run.hp, hand: run.handSize, abil: run.abil, atkx: run.atkx });
     run.phase = 'fight';
   }
   // ごほうび3つ。もっている種類は、半分の確率で「レベルアップ」（その種類ぜんぶが強くなる）になる。それ以外は新しいブロック（向きは でたらめ）。
@@ -761,7 +798,7 @@
   return {
     W, H, N, HAND, MAXHP, WEAK, SHOCK_AT, SHOCK_DMG, FREEZE_AT, COUNTER_MAX, STAGES, PICKS, HEAL_AFTER, STAGE_HP, STAGE_ATK,
     B, TYPES, FAMS, FAM_HINT, KW, STATUS_NAMES, TERMS, TERM_WORDS, termText, ENEMIES, ENEMY_IDS, START_DECK, NB, INNER,
-    blockText, faceOf, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
+    blockText, faceOf, faceTable, maxLv, lvOf, val, edges, accepts, derive, destroyTargets, giftText, summary, intentLines,
     newFight, cloneState, beginTurn, makeIntent, cellOf, canPut, put, take, clearBoard, rotate, linksIfPut,
     resolve, endTurn, forecast,
     newRun, startFight, finishFight, pickReward, removeCard, rollReward,
