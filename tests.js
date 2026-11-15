@@ -232,6 +232,10 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('毒が0のときの毒消費の守りは、シールドを足さない（gain 0）', go([['consume', 1, 1], ['shield', 0, 6]], ab({ parts: [A(3)] })).ev.find(x => x.t === 'ward').gain, 0);
   // Codex の指摘（2026-11-15 2回目）4：stage が範囲外でも数がこわれない
   ok('stage=-1・5・9 でも 敵のHPと攻撃が ふつうの数', [-1, 5, 9].every(st => { const f = R.newFight({ enemyId: 'golem', stage: st, seed: 3 }); return Number.isFinite(f.e.hp) && f.intent.parts.every(p => p.k !== 'atk' || Number.isFinite(p.dmg)); }));
+  const hpAt = st => R.newFight({ enemyId: 'golem', stage: st, seed: 3 }).e.hp;
+  eq('stage −1 は 0、5 と 9 は 4 と同じ（Codex 3回目の指摘2）', [hpAt(-1), hpAt(5), hpAt(9)], [hpAt(0), hpAt(4), hpAt(4)]);
+  let bad = ''; try { R.newFight({ enemyId: 'bogus' }); } catch (e) { bad = e.message; }
+  ok('知らない敵の名前は、分かる文で止まる（Codex 3回目の指摘1）', bad.indexOf('知らない敵') === 0, bad);
   ok('力だめ・火の粉の ことばの説明がある', R.termText('focus').name === '力だめ' && R.termText('ember').name === '火の粉');
 }
 { // 攻撃くらべ版（?atk=1。GPT の意見）：射撃は3ヒット。範囲攻撃は「共鳴」

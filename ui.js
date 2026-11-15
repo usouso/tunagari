@@ -717,6 +717,7 @@
     await sleep(0);
     sampleLayout(); // タイトル
     if (SCREEN === 'title') { CHECK.stopped = true; writeCheck(); return; }
+    if (enemy && !R.ENEMIES[enemy]) { miss(`知らない敵の名前（enemy=${enemy}）`); CHECK.done = true; writeCheck(); return; } // 検査の URL のまちがいを知らせる
     if (enemy) startOne(enemy, +Q.get('stage') || 0); else startRun();
     let guard = 0;
     while (guard++ < 400) {
@@ -739,7 +740,7 @@
           const hits = R.derive(s).blk[8].atk.hits;
           await doEnd(); sampleLayout();
           const f = CHECK.faceGifts; // ward は シールドが ふえたときだけ数える
-          CHECK.facesScene = { hits, ember: f.ember || 0, brace: f.brace || 0, ward: f.ward || 0, ok: hits === 2 && f.ember > 0 && f.brace > 0 && f.ward > 0 };
+          CHECK.facesScene = { hits, ember: f.ember || 0, brace: f.brace || 0, ward: f.ward || 0, ok: hits === 2 && f.ember > 0 && f.brace > 0 && f.ward === 1 }; // 毒消費の守りは3回 働くが、毒があるのは1回目だけ（2・3回目は gain 0 で数えない）
           CHECK.stopped = true; writeCheck(); return;
         }
         if (Q.get('scene') === 'rotate') { // 決まった場面：回す操作3つ（右クリック・R キー・「回す」ボタン）と、もう一度押す
@@ -802,6 +803,6 @@
   }
 
   showTitle();
-  if (Q.has('enemy') && !AUTO) startOne(Q.get('enemy'), +Q.get('stage') || 0);
+  if (Q.has('enemy') && !AUTO && R.ENEMIES[Q.get('enemy')]) startOne(Q.get('enemy'), +Q.get('stage') || 0);
   if (AUTO) autoPlay().catch(e => { CHECK.errors.push('auto: ' + (e && e.stack || e)); writeCheck(); });
 })();

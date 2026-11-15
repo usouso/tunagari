@@ -64,6 +64,7 @@ async function main() {
     if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版（?abil=1）5連戦 種11', 'auto=1&speed=0&seed=11&abil=1', { play: true, abil: true, shot: 'abil' });
     if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻め・守り版2（?abil=2）5連戦 種11', 'auto=1&speed=0&seed=11&abil=2', { play: true, abil2: true, shot: 'abil2' });
     if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '版2＋攻撃くらべ版：火の粉・蓄積の守り・毒消費の守り・共鳴を発動で起こす', 'auto=1&speed=0&seed=11&enemy=berserk&abil=2&atk=1&scene=faces', { stop: true, faces: true, shot: 'faces' });
+    if (sn === 'pc1366') add(sn, w, h, pc, '知らない敵の名前の URL は、検査の失敗として知らせる', 'auto=1&speed=0&seed=11&enemy=bogus', { badEnemy: true });
     if (sn === 'pc1366' || sn === 'phone') add(sn, w, h, pc, '攻撃くらべ版（?atk=1）5連戦 種11', 'auto=1&speed=0&seed=11&atk=1', { play: true, shot: 'atk1' });
     add(sn, w, h, pc, '回す操作（右クリック・R・ボタン・もう一度押す）', 'auto=1&speed=0&seed=11&scene=rotate', { stop: true, rotate: true });
     add(sn, w, h, pc, 'ことばの説明（結界にのせた画面）', 'auto=1&speed=0&seed=11&stop=4&screen=tip&tip=guard', { stop: true, tip: 'guard', shot: 'tip' });
@@ -106,6 +107,7 @@ async function main() {
       if (c.play && !(k.linkChecks > 0 && k.spotChecks > 0 && k.turns > 0)) bad.push('盤面の表示の検査が、1回も動かなかった');
       if (c.abil && !(k.faceGifts && k.faceGifts.frail > 0 && k.faceGifts.charge > 0)) bad.push(`攻め・守り版なのに、弱る（毒の守り）と たまり（再生の攻め）の両方が働かなかった（${JSON.stringify(k.faceGifts)}）`);
       if (c.abil2 && !(k.faceGifts && k.faceGifts.frail > 0 && k.faceGifts.might > 0)) bad.push(`攻め・守り版2なのに、弱る（毒の守り）と 再生の攻め（ヒットのダメージ+）の両方が働かなかった（${JSON.stringify(k.faceGifts)}）`);
+      if (c.badEnemy) { const said = (k.mismatches || []).some(m => String(m).indexOf('知らない敵の名前') >= 0); bad.length = 0; if (!said) bad.push(`知らない敵の名前を 知らせなかった（${JSON.stringify(k.mismatches)}）`); }
       if (c.faces && !(k.facesScene && k.facesScene.ok)) bad.push(`版2・攻撃くらべ版の場面で、働くはずのものが働かなかった（${JSON.stringify(k.facesScene)}）`);
       if (c.abil2 && k.faceGifts && k.faceGifts.charge) bad.push('攻め・守り版2なのに たまり が出た');
       if (c.abil2) total.faceGifts2 = Object.assign(total.faceGifts2 || {}, Object.fromEntries(Object.entries(k.faceGifts || {}).map(([a, b]) => [a, ((total.faceGifts2 || {})[a] || 0) + b])));
@@ -118,7 +120,7 @@ async function main() {
       if ((c.play || c.terms) && !(k.tipChecks > 0)) bad.push('ことばの説明の検査が、1回も動かなかった');
       total.tips += k.tipChecks || 0; for (const key of Object.keys(k.tipSeen || {})) total.tipSeen[key] = 1;
       total.turns += k.turns || 0; total.links += k.linkChecks || 0; total.spots += k.spotChecks || 0; total.fights += k.fights || 0;
-      if (k.mismatches.length) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
+      if (k.mismatches.length && !c.badEnemy) bad.push('表示と計算のずれ ' + k.mismatches.slice(0, 3).join(' / '));
       const L = k.layout;
       if (L.overlaps) bad.push(`文字の重なり ${L.overlaps}（${L.notes.slice(0, 3).join(' / ')}）`);
       if (L.offscreen) bad.push(`はみ出し ${L.offscreen}（${L.notes.slice(0, 3).join(' / ')}）`);

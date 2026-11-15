@@ -464,6 +464,7 @@
   // ---------------------------------------------------------------- 1戦の状態
   // o: { enemyId, stage, deck:[[type,rot]|{type,rot}], seed, hp, hand（引く数） }
   function newFight(o) {
+    if (!ENEMIES[o.enemyId]) throw new Error(`知らない敵: ${o.enemyId}`);
     const def = ENEMIES[o.enemyId], stage = Math.max(0, Math.min(STAGES - 1, (o.stage | 0) || 0)); // 0〜4（URL の stage= が範囲外でも こわれない）
     const cards = (o.deck || START_DECK).map((c, id) => (Array.isArray(c) ? { id, type: c[0], rot: c[1] & 3 } : { id, type: c.type, rot: c.rot & 3 }));
     const hp = Math.round(def.hp * STAGE_HP[stage]);
