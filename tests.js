@@ -187,7 +187,7 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
 { // 攻め・守り版2（?abil=2。Muse・GPT の意見から）：毒・炎・再生・毒消費・蓄積。たまり は使わない
   const AB = { abil: 2 }, ab = o => Object.assign({}, o, AB);
   eq('版2の文（炎）', R.blockText('fire', 1, 2), '攻め：炎+1。 守り：火の粉1。');
-  eq('版2の文（再生）', R.blockText('regen', 1, 2), '攻め：ヒットのダメージ+2。 守り・ひとり：HP+2。');
+  eq('版2の文（再生）', R.blockText('regen', 1, 2), '攻撃に のせると：ヒットのダメージ+2。 ほか：HP+2。');
   eq('版2の文（蓄積）', R.blockText('charge', 1, 2), '攻め：力だめ+3。 守り：敵の、最初に当たるヒット−3。');
   eq('版2の文（毒消費の守りは 2倍のシールド）', R.blockText('consume', 1, 2), '敵の毒を全部消して、攻め：消した数×2 のダメージ。 守り：消した数×4 のシールド。');
   ok('版2でも 氷・雷・追撃の文は ふだんと同じ', ['ice', 'shock', 'chase'].every(t => R.blockText(t, 1, 2) === R.blockText(t, 1)));
@@ -229,6 +229,9 @@ eq('持続強化なしなら 炎は消える', go([['fire', 1, 6]], { e: { fire:
   eq('力だめは ターンの終わりに消える（攻撃のない盤面）', go([['charge', 0, 0]], AB).s.p.focus, 0);
   const fc = R.forecast(mk([['charge', 1, 1], ['shield', 0, 6]], ab({ parts: [A(10, 2)] })));
   eq('版2も 予想＝結果', fc.taken, c2.taken);
+  eq('毒が0のときの毒消費の守りは、シールドを足さない（gain 0）', go([['consume', 1, 1], ['shield', 0, 6]], ab({ parts: [A(3)] })).ev.find(x => x.t === 'ward').gain, 0);
+  // Codex の指摘（2026-11-15 2回目）4：stage が範囲外でも数がこわれない
+  ok('stage=-1・5・9 でも 敵のHPと攻撃が ふつうの数', [-1, 5, 9].every(st => { const f = R.newFight({ enemyId: 'golem', stage: st, seed: 3 }); return Number.isFinite(f.e.hp) && f.intent.parts.every(p => p.k !== 'atk' || Number.isFinite(p.dmg)); }));
   ok('力だめ・火の粉の ことばの説明がある', R.termText('focus').name === '力だめ' && R.termText('ember').name === '火の粉');
 }
 { // 攻撃くらべ版（?atk=1。GPT の意見）：射撃は3ヒット。範囲攻撃は「共鳴」

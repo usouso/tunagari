@@ -50,7 +50,7 @@
     shock:   { fam: 'abil', name: '雷',       g: '雷', v: [2, 3, 4], sh: [0, 1, -1, 0], kw: 'shock',
                txt: v => `雷+${v}。` },
     regen:   { fam: 'abil', name: '再生',     g: '癒', v: [2, 3, 4], sh: [0, 1, 0, -1], face: { atk: 'charge' }, f2: { atk: 'might', self: null },
-               txt: v => `HP+${v}。`, txt2: v => `攻め：たまり+${v}。 守り：HP+${v}。`, txt3: v => `攻め：ヒットのダメージ+${v}。 守り・ひとり：HP+${v}。` },
+               txt: v => `HP+${v}。`, txt2: v => `攻め：たまり+${v}。 守り：HP+${v}。`, txt3: v => `攻撃に のせると：ヒットのダメージ+${v}。 ほか：HP+${v}。` },
     chase:   { fam: 'abil', name: '追撃',     g: '追', v: [2, 3, 4], sh: [-1, 1, 0, 0],
                txt: v => `${v}ダメージの追加ヒット。敵の状態1種類ごとに ダメージ+${v}。` },
     consume: { fam: 'abil', name: '毒消費',   g: '消', v: [2, 3, 4], sh: [0, 1, -1, 0], f2: { def: 'ward' },
@@ -464,7 +464,7 @@
   // ---------------------------------------------------------------- 1戦の状態
   // o: { enemyId, stage, deck:[[type,rot]|{type,rot}], seed, hp, hand（引く数） }
   function newFight(o) {
-    const def = ENEMIES[o.enemyId], stage = o.stage || 0;
+    const def = ENEMIES[o.enemyId], stage = Math.max(0, Math.min(STAGES - 1, (o.stage | 0) || 0)); // 0〜4（URL の stage= が範囲外でも こわれない）
     const cards = (o.deck || START_DECK).map((c, id) => (Array.isArray(c) ? { id, type: c[0], rot: c[1] & 3 } : { id, type: c.type, rot: c.rot & 3 }));
     const hp = Math.round(def.hp * STAGE_HP[stage]);
     const s = {

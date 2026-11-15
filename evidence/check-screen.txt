@@ -76,5 +76,5 @@
 5戦目まで勝ち切る場面: 5
 ことばの説明を出してくらべた回数: 865（出した ことば 21 / 21: armor charge cleanse curse destroy ember evade fire focus frail frozen guard ice poison rage rubble rubbleNext seal shield shock thorns）
 小さく効く（点線の凸）を盤面の絵とくらべた数: 61
-攻め・守り版2で働いた「もう1つの顔」: {"might":12,"ward":4,"frail":56}
+攻め・守り版2で働いた「もう1つの顔」: {"might":12,"ward":2,"frail":56}
 画面の検査: 72 / 72 合格、失敗 0

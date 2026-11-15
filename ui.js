@@ -447,8 +447,8 @@
         log('lp', `${R.B[e.src || e.kind].name}：${nm}+${e.n}`); return 130;
       }
       case 'ward':
+        if (!(e.gain > 0)) return 60; // 消す毒が なかった（2発目から）。きろくにも検査の数にも入れない
         CHECK.faceGifts.ward = (CHECK.faceGifts.ward || 0) + 1; fxCell(e.cell);
-        if (!(e.n > 0)) return 60; // 消す毒が なかった（2発目から）。きろくに書かない
         slot('#player-dmg', `+${e.gain}`, `毒${e.n}を シールドに`, 'heal');
         log('lp', `毒消費：毒${e.n}を消して シールド+${e.gain}`); return 260;
       case 'consume': fxCell(e.cell); G.turnSum.e += e.dmg; slot('#enemy-dmg', `−${e.dmg}`, `毒${e.n}を消費`); log('lp', `毒消費：毒${e.n}を消して ${e.dmg}ダメージ`); sfx('big'); return 300;
@@ -738,7 +738,7 @@
           renderAll(); checkBoardDisplay(); sampleLayout();
           const hits = R.derive(s).blk[8].atk.hits;
           await doEnd(); sampleLayout();
-          const f = CHECK.faceGifts;
+          const f = CHECK.faceGifts; // ward は シールドが ふえたときだけ数える
           CHECK.facesScene = { hits, ember: f.ember || 0, brace: f.brace || 0, ward: f.ward || 0, ok: hits === 2 && f.ember > 0 && f.brace > 0 && f.ward > 0 };
           CHECK.stopped = true; writeCheck(); return;
         }
